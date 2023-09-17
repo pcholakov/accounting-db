@@ -23,7 +23,7 @@ export class AccountingDbStack extends cdk.Stack {
         name: "sk",
         type: dynamodb.AttributeType.STRING,
       },
-    })
+    });
 
     const writerFunction = new lambda_node.NodejsFunction(this, "Writer", {
       memorySize: 1024,
@@ -49,10 +49,12 @@ export class AccountingDbStack extends cdk.Stack {
     });
 
     // Grant function the ability to create temporary response queues and publish messages to them
-    writerFunction.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ["sqs:CreateQueue", "sqs:Get*", "sqs:Tag*", "sqs:SendMessage"],
-      resources: [`${queue.queueArn}-*`],
-    }));
+    writerFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ["sqs:CreateQueue", "sqs:Get*", "sqs:Tag*", "sqs:SendMessage"],
+        resources: [`${queue.queueArn}-*`],
+      }),
+    );
   }
 }

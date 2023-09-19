@@ -1,14 +1,12 @@
-# Welcome to your CDK TypeScript project
+# AccountingDB: A high-performance financial ledger based on DynamoDB
 
-This is a blank project for CDK development with TypeScript.
+This project implements a financial tracking component that heavily leans on AWS
+components. At the core, durable stage storage is provided by DynamoDB. Other
+aspects of the solution are implemented by maximally relying on a serverless
+approach in order to achieve extremely low human operational cost.
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## Operations
 
-## Useful commands
-
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `cdk deploy`      deploy this stack to your default AWS account/region
-* `cdk diff`        compare deployed stack with current state
-* `cdk synth`       emits the synthesized CloudFormation template
+Transfers are transactional debits/credits between pairs of accounts. You
+specify a credit and debit account, and an amount, and the system will accept or
+reject the transfer depending on which logic rules are active.

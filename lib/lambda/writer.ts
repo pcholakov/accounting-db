@@ -1,7 +1,7 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { SQSEvent, SQSHandler } from "aws-lambda";
-import { write } from "../transactions";
+import { createTransfer } from "../transactions";
 
 const TABLE_NAME = process.env.TABLE_NAME ?? "assignments-db";
 
@@ -20,7 +20,7 @@ export const handler: SQSHandler = async (event: SQSEvent) => {
 
   const body = JSON.parse(records[0].body);
 
-  write(documentClient, TABLE_NAME, body);
+  createTransfer(documentClient, TABLE_NAME, body);
 
   // const ack = {
   //   id: writeResult.$metadata.requestId,

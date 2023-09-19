@@ -1,7 +1,6 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { randomInt } from "crypto";
-import { write } from "../lib/transactions";
+import { createAccount, createTransfer } from "../lib/transactions";
 
 const dynamodbClient = new dynamodb.DynamoDBClient({
   region: "localhost",
@@ -11,13 +10,19 @@ const dynamodbClient = new dynamodb.DynamoDBClient({
     secretAccessKey: "k",
   },
 });
-const documentClient = ddc.DynamoDBDocumentClient.from(dynamodbClient);
+
+const documentClient = ddc.DynamoDBDocumentClient.from(dynamodbClient, {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+const TABLE_NAME = "transactions";
 
 describe("transactions", () => {
   beforeAll(async () => {
+    await dynamodbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));
     await dynamodbClient.send(
       new dynamodb.CreateTableCommand({
-        TableName: "transactions",
+        TableName: TABLE_NAME,
         KeySchema: [
           { AttributeName: "pk", KeyType: "HASH" },
           { AttributeName: "sk", KeyType: "RANGE" },
@@ -32,21 +37,76 @@ describe("transactions", () => {
   });
 
   afterAll(async () => {
-    await dynamodbClient.send(new dynamodb.DeleteTableCommand({ TableName: "transactions" }));
+    await dynamodbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));
   });
 
-  test("write a transfer", async () => {
-    await write(documentClient, "transactions", {
-      id: randomInt(Math.pow(2, 31) - 1),
-      ledger: 1,
-      amount: 1_000,
-      credit_account_id: 101,
-      debit_account_id: 100,
-      code: 0,
-      flags: 0,
-      pending_id: 0,
-      timeout: 0,
-      timestamp: Date.now(),
+  describe("transact between accounts", () => {
+    beforeAll(async () => {
+      await Promise.all([
+        createAccount(documentClient, TABLE_NAME, {
+          id: 1,
+          ledger: 700,
+          debits_pending: 0,
+          debits_posted: 0,
+          credits_pending: 0,
+          credits_posted: 0,
+        }),
+        createAccount(documentClient, TABLE_NAME, {
+          id: 2,
+          ledger: 700,
+          debits_pending: 0,
+          debits_posted: 0,
+          credits_pending: 0,
+          credits_posted: 0,
+        }),
+        createAccount(documentClient, TABLE_NAME, {
+          id: 3,
+          ledger: 700,
+          debits_pending: 0,
+          debits_posted: 0,
+          credits_pending: 0,
+          credits_posted: 0,
+        }),
+      ]);
+    });
+
+    test("create transfers", async () => {
+      await createTransfer(documentClient, TABLE_NAME, {
+        id: 1,
+        ledger: 700,
+        amount: 10,
+        debit_account_id: 1,
+        credit_account_id: 2,
+        code: 0,
+        flags: 0,
+        pending_id: 0,
+        timeout: 0,
+        timestamp: Date.now(),
+      });
+      await createTransfer(documentClient, TABLE_NAME, {
+        id: 2,
+        ledger: 700,
+        amount: 10,
+        debit_account_id: 2,
+        credit_account_id: 1,
+        code: 0,
+        flags: 0,
+        pending_id: 0,
+        timeout: 0,
+        timestamp: Date.now(),
+      });
+      await createTransfer(documentClient, TABLE_NAME, {
+        id: 3,
+        ledger: 700,
+        amount: 10,
+        debit_account_id: 1,
+        credit_account_id: 3,
+        code: 0,
+        flags: 0,
+        pending_id: 0,
+        timeout: 0,
+        timestamp: Date.now(),
+      });
     });
   });
 });

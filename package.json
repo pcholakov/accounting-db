@@ -1,6 +1,7 @@
 {
   "name": "accounting-db",
   "version": "0.1.0",
+  "type": "module",
   "bin": {
     "accounting-db": "bin/accounting-db.js"
   },
@@ -30,6 +31,7 @@
   "dependencies": {
     "aws-cdk-lib": "2.96.2",
     "constructs": "^10.2.70",
+    "p-queue": "^7.4.1",
     "prettier": "^3.0.3",
     "source-map-support": "^0.5.21"
   }

@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/accounting-db.ts",
+  "app": "npx ts-node-esm --prefer-ts-exts bin/accounting-db.ts",
   "watch": {
     "include": [
       "**"

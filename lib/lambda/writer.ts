@@ -1,7 +1,7 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { SQSEvent, SQSHandler } from "aws-lambda";
-import { createTransfer } from "../transactions";
+import { createTransfer } from "../transactions.js";
 
 const TABLE_NAME = process.env.TABLE_NAME ?? "assignments-db";
 

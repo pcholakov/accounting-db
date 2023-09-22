@@ -40,7 +40,6 @@ export class AccountingDbStack extends cdk.Stack {
         TABLE_NAME: table.tableName,
       },
     });
-
     table.grantWriteData(writerFunction);
     queue.grantConsumeMessages(writerFunction);
 
@@ -53,12 +52,36 @@ export class AccountingDbStack extends cdk.Stack {
     });
 
     // Grant function the ability to create temporary response queues and publish messages to them
-    writerFunction.addToRolePolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ["sqs:CreateQueue", "sqs:Get*", "sqs:Tag*", "sqs:SendMessage"],
-        resources: [`${queue.queueArn}-*`],
-      }),
-    );
+    // writerFunction.addToRolePolicy(
+    //   new iam.PolicyStatement({
+    //     effect: iam.Effect.ALLOW,
+    //     actions: ["sqs:CreateQueue", "sqs:Get*", "sqs:Tag*", "sqs:SendMessage"],
+    //     resources: [`${queue.queueArn}-*`],
+    //   }),
+    // );
+
+    const benchmarkSetupAccounts = new lambda_node.NodejsFunction(this, "BenchmarkSetup", {
+      memorySize: 2048,
+      timeout: cdk.Duration.seconds(120),
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: "handler",
+      entry: path.join(__dirname, "lambda/create-accounts.ts"),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
+    });
+    table.grantWriteData(benchmarkSetupAccounts);
+
+    const benchmarkTransfers = new lambda_node.NodejsFunction(this, "BenchmarkTransfers", {
+      memorySize: 4096,
+      timeout: cdk.Duration.seconds(600),
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: "handler",
+      entry: path.join(__dirname, "lambda/create-transfers.ts"),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
+    });
+    table.grantWriteData(benchmarkTransfers);
   }
 }

@@ -1,7 +1,7 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { setupAccounts } from "../lib/benchmarks.js";
 import PQueue from "p-queue";
+import { writeRandomTransactions } from "../lib/benchmarks.js";
 
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 
@@ -20,7 +20,7 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
 const queue = new PQueue({ concurrency: 10 });
 
 async function main() {
-  setupAccounts(documentClient, TABLE_NAME, queue, 10_000);
+  await writeRandomTransactions(documentClient, TABLE_NAME, queue, 10_000, 10_000);
 }
 
 main();

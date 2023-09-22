@@ -6,7 +6,7 @@ export interface Transfer {
   debit_account_id: AccountId;
   credit_account_id: AccountId;
   user_data?: ExternalId;
-  pending_id: TransferId;
+  pending_id?: IdType;
   timeout: Timeout;
   ledger: LedgerId;
   code?: Reason;
@@ -117,10 +117,9 @@ export async function createTransfer(
   return TransferResult.OK;
 }
 
-type IdType = number;
+type IdType = string;
 type AccountId = number;
 type ExternalId = number;
-type TransferId = number;
 type Timeout = number;
 type LedgerId = number;
 type Reason = number;

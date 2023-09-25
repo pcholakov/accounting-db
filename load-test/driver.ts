@@ -1,12 +1,12 @@
 import { createHistogram, Histogram, PerformanceObserver, performance, RecordableHistogram } from "perf_hooks";
 
-interface Test {
+export interface Test {
   setup(): Promise<void>;
   teardown(): Promise<void>;
   request(): Promise<void>;
 }
 
-class LoadTestDriver {
+export class LoadTestDriver {
   private concurrency: number;
   private arrivalRate: number;
   private test: Test;
@@ -62,6 +62,21 @@ class LoadTestDriver {
 
   async stop(): Promise<void> {
     await this.test.teardown();
+
+    console.log({
+      count: this.requestCount(),
+      throughput: this.requestCount() / this.duration,
+      arrivalRateRatio: this.requestCount() / this.duration / this.arrivalRate,
+      avg: this.histogram().mean,
+      min: this.histogram().min,
+      max: this.histogram().max,
+      p50: this.histogram().percentile(50),
+      p75: this.histogram().percentile(75),
+      p90: this.histogram().percentile(90),
+      p95: this.histogram().percentile(95),
+      p99: this.histogram().percentile(99),
+      p999: this.histogram().percentile(99.9),
+    });
   }
 
   requestCount() {
@@ -73,42 +88,6 @@ class LoadTestDriver {
   }
 }
 
-async function sleep(ms: number) {
+export async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-const test: Test = {
-  async setup() {},
-
-  async teardown() {
-    process.stdout.write("\n");
-  },
-
-  async request() {
-    await sleep(10);
-    process.stdout.write(".");
-  },
-};
-
-const concurrency = 10;
-const arrivalRate = 100; // requests per second
-const duration = 3; // seconds
-
-const loadTest = new LoadTestDriver(concurrency, arrivalRate, duration, test);
-await loadTest.run();
-
-console.log({
-  count: loadTest.requestCount(),
-  throughput: loadTest.requestCount() / duration,
-  arrivalRateRatio: loadTest.requestCount() / duration / arrivalRate,
-  avg: loadTest.histogram().mean,
-  min: loadTest.histogram().min,
-  max: loadTest.histogram().max,
-  p50: loadTest.histogram().percentile(50),
-  p75: loadTest.histogram().percentile(75),
-  p90: loadTest.histogram().percentile(90),
-  p95: loadTest.histogram().percentile(95),
-  p99: loadTest.histogram().percentile(99),
-  p999: loadTest.histogram().percentile(99.9),
-});
-console.log();

@@ -2,7 +2,7 @@ import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { createAccount, createTransfer } from "../lib/transactions.js";
 
-const dynamodbClient = new dynamodb.DynamoDBClient({
+const dynamoDbClient = new dynamodb.DynamoDBClient({
   region: "localhost",
   endpoint: "http://localhost:8000",
   credentials: {
@@ -11,7 +11,7 @@ const dynamodbClient = new dynamodb.DynamoDBClient({
   },
 });
 
-const documentClient = ddc.DynamoDBDocumentClient.from(dynamodbClient, {
+const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
 
@@ -20,14 +20,14 @@ const TABLE_NAME = "transactions";
 describe("transactions", () => {
   beforeAll(async () => {
     try {
-      await dynamodbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));
+      await dynamoDbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));
     } catch (err) {
       if (!(err instanceof dynamodb.ResourceNotFoundException)) {
         throw err;
       }
     }
-    
-    await dynamodbClient.send(
+
+    await dynamoDbClient.send(
       new dynamodb.CreateTableCommand({
         TableName: TABLE_NAME,
         KeySchema: [

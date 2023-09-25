@@ -6,7 +6,7 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda_node from "aws-cdk-lib/aws-lambda-nodejs";
 import * as path from "path";
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +27,7 @@ export class AccountingDbStack extends cdk.Stack {
         name: "sk",
         type: dynamodb.AttributeType.STRING,
       },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
     const writerFunction = new lambda_node.NodejsFunction(this, "Writer", {
@@ -51,15 +52,6 @@ export class AccountingDbStack extends cdk.Stack {
       target: writerFunction,
     });
 
-    // Grant function the ability to create temporary response queues and publish messages to them
-    // writerFunction.addToRolePolicy(
-    //   new iam.PolicyStatement({
-    //     effect: iam.Effect.ALLOW,
-    //     actions: ["sqs:CreateQueue", "sqs:Get*", "sqs:Tag*", "sqs:SendMessage"],
-    //     resources: [`${queue.queueArn}-*`],
-    //   }),
-    // );
-
     const benchmarkSetupAccounts = new lambda_node.NodejsFunction(this, "BenchmarkSetup", {
       memorySize: 2048,
       timeout: cdk.Duration.seconds(120),
@@ -77,7 +69,7 @@ export class AccountingDbStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(600),
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: "handler",
-      entry: path.join(__dirname, "lambda/create-transfers.ts"),
+      entry: path.join(__dirname, "lambda/benchmark.ts"),
       environment: {
         TABLE_NAME: table.tableName,
       },

@@ -24,6 +24,8 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
 
 const ulid = monotonicFactory();
 
+let count = 0;
+
 const test: Test = {
   async setup() {
     try {
@@ -60,11 +62,12 @@ const test: Test = {
   async request() {
     const timestamp = Date.now();
 
-    const fromAccount = randomInt(1, ACCOUNT_COUNT);
-    let toAccount;
-    do {
-      toAccount = randomInt(1, ACCOUNT_COUNT);
-    } while (fromAccount === toAccount);
+    const fromAccount = 1; // randomInt(1, ACCOUNT_COUNT);
+    // let toAccount;
+    // do {
+    //   toAccount = randomInt(1, ACCOUNT_COUNT);
+    // } while (fromAccount === toAccount);
+    const toAccount = randomInt(2, ACCOUNT_COUNT);
 
     const tx: Transfer = {
       id: ulid(),
@@ -85,13 +88,15 @@ const test: Test = {
       console.log({ message: "Transaction failed", tx, error: err });
     }
 
-    process.stdout.write(".");
+    if (count++ % 1_000 === 0) {
+      process.stdout.write(".");
+    }
   },
 };
 
-const concurrency = 16;
+const concurrency = 4;
 const arrivalRate = 1000; // requests per second
-const duration = 60; // seconds
+const duration = 20; // seconds
 
 const loadTest = new LoadTestDriver(concurrency, arrivalRate, duration, test);
 await loadTest.run();

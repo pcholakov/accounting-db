@@ -64,6 +64,11 @@ export class LoadTestDriver {
     await this.test.teardown();
 
     console.log({
+      configuration: {
+        concurrency: this.concurrency,
+        targetArrivalRate: this.arrivalRate,
+        duration: this.duration,
+      },
       count: this.requestCount(),
       throughput: this.requestCount() / this.duration,
       arrivalRateRatio: this.requestCount() / this.duration / this.arrivalRate,

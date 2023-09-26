@@ -1,5 +1,6 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
+import { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 
 export interface Transfer {
   id: IdType;
@@ -69,48 +70,66 @@ export async function createTransfer(
   tableName: string,
   transfer: Transfer,
 ): Promise<TransferResult> {
+  return createTransfersBatch(documentClient, tableName, [transfer]);
+}
+
+export async function createTransfersBatch(
+  documentClient: ddc.DynamoDBDocumentClient,
+  tableName: string,
+  batch: Transfer[],
+): Promise<TransferResult> {
+  if (batch.length > 33) {
+    throw new Error("Assertion error: Bbatch size too large");
+  }
+
+  const items: TransactWriteCommandInput["TransactItems"] = [];
+
+  batch.forEach((transfer) => {
+    items.push(
+      {
+        Put: {
+          TableName: tableName,
+          Item: {
+            pk: `transfer#${transfer.id}`,
+            sk: `transfer#${transfer.id}`,
+            ...transfer,
+          },
+          ConditionExpression: "attribute_not_exists(pk)",
+        },
+      },
+      {
+        Update: {
+          TableName: tableName,
+          Key: {
+            pk: `account#${transfer.debit_account_id}`,
+            sk: `account#${transfer.debit_account_id}`,
+          },
+          UpdateExpression: "SET debits_posted = debits_posted + :amount",
+          ExpressionAttributeValues: {
+            ":amount": transfer.amount,
+          },
+        },
+      },
+      {
+        Update: {
+          TableName: tableName,
+          Key: {
+            pk: `account#${transfer.credit_account_id}`,
+            sk: `account#${transfer.credit_account_id}`,
+          },
+          UpdateExpression: "SET credits_posted = credits_posted + :amount",
+          ExpressionAttributeValues: {
+            ":amount": transfer.amount,
+          },
+        },
+      },
+    );
+  });
+
   await documentClient.send(
     new ddc.TransactWriteCommand({
       ClientRequestToken: randomUUID(),
-      TransactItems: [
-        {
-          Put: {
-            TableName: tableName,
-            Item: {
-              pk: `transfer#${transfer.id}`,
-              sk: `transfer#${transfer.id}`,
-              ...transfer,
-            },
-            ConditionExpression: "attribute_not_exists(pk)",
-          },
-        },
-        {
-          Update: {
-            TableName: tableName,
-            Key: {
-              pk: `account#${transfer.debit_account_id}`,
-              sk: `account#${transfer.debit_account_id}`,
-            },
-            UpdateExpression: "SET debits_posted = debits_posted + :amount",
-            ExpressionAttributeValues: {
-              ":amount": transfer.amount,
-            },
-          },
-        },
-        {
-          Update: {
-            TableName: tableName,
-            Key: {
-              pk: `account#${transfer.credit_account_id}`,
-              sk: `account#${transfer.credit_account_id}`,
-            },
-            UpdateExpression: "SET credits_posted = credits_posted + :amount",
-            ExpressionAttributeValues: {
-              ":amount": transfer.amount,
-            },
-          },
-        },
-      ],
+      TransactItems: items,
     }),
   );
 

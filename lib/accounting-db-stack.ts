@@ -1,10 +1,9 @@
 import * as cdk from "aws-cdk-lib";
-import { Construct } from "constructs";
-import * as iam from "aws-cdk-lib/aws-iam";
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambda_node from "aws-cdk-lib/aws-lambda-nodejs";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import { Construct } from "constructs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 

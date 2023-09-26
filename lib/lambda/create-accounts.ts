@@ -14,7 +14,8 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
 const queue = new PQueue({ concurrency: 16 });
 
 export const handler: Handler = async (event, context) => {
-  console.log({ message: "Creating benchmark accounts..." });
-  await setupAccounts(documentClient, TABLE_NAME, queue, 10_000);
+  const numAccounts = event.accounts ?? 1_000_000;
+  console.log({ message: `Creating ${numAccounts} zero-balance accounts...` });
+  await setupAccounts(documentClient, TABLE_NAME, queue, 1_000_000);
   console.log({ message: "Done creating accounts." });
 };

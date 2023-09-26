@@ -16,11 +16,21 @@ export class LoadTestDriver {
   private _requestCount: number = 0;
   private _errorCount: number = 0;
   private benchmarkDurationMs: number;
+  private transactionsPerRequest: number;
 
-  constructor(concurrency: number, arrivalRate: number, durationSeconds: number, test: Test) {
-    this.concurrency = concurrency;
-    this.arrivalRate = arrivalRate;
-    this.overallDurationMs = durationSeconds * 1_000;
+  constructor(
+    test: Test,
+    opts: {
+      concurrency: number;
+      arrivalRate: number;
+      durationSeconds: number;
+      transactionsPerRequest?: number;
+    },
+  ) {
+    this.concurrency = opts.concurrency;
+    this.arrivalRate = opts.arrivalRate;
+    this.overallDurationMs = opts.durationSeconds * 1_000;
+    this.transactionsPerRequest = opts.transactionsPerRequest ?? 1;
     this.warmupDurationMs = Math.min(this.overallDurationMs / 10, 10_000); // 10% of duration or 10s, whichever is smaller
     this.benchmarkDurationMs = this.overallDurationMs - this.warmupDurationMs;
     this.test = test;
@@ -61,12 +71,12 @@ export class LoadTestDriver {
         try {
           await this.test.request();
         } catch (error) {
-          this._errorCount++;
+          this._errorCount += this.transactionsPerRequest;
         }
         const iterationEnd = performance.now();
 
         const iterationDurationMicros = (iterationEnd - iterationStart) * 1_000;
-        this._requestCount++;
+        this._requestCount += this.transactionsPerRequest;
         const durationInt = Math.floor(iterationDurationMicros);
         if (durationInt > 0) {
           // TODO: surface zero durations to the user

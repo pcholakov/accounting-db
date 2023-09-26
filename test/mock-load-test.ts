@@ -15,7 +15,7 @@ const test: Test = {
 
 const concurrency = 10;
 const arrivalRate = 100; // requests per second
-const duration = 3; // seconds
+const durationSeconds = 3;
 
-const loadTest = new LoadTestDriver(concurrency, arrivalRate, duration, test);
+const loadTest = new LoadTestDriver(test, { concurrency, arrivalRate, durationSeconds });
 await loadTest.run();

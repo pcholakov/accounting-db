@@ -1,14 +1,13 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { randomInt } from "crypto";
-import { monotonicFactory } from "ulid";
-import { Transfer, createTransfer } from "../lib/transactions.js";
-import { LoadTestDriver, Test } from "./driver.js";
-import { setupAccounts } from "../lib/benchmarks.js";
 import PQueue from "p-queue";
+import { AccountSelectionStrategy, buildRandomTransactions, setupAccounts } from "../lib/benchmarks.js";
+import { createTransfersBatch } from "../lib/transactions.js";
+import { LoadTestDriver, Test } from "./driver.js";
 
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 const ACCOUNT_COUNT = 10_000;
+const TRANSFERS_PER_BATCH = 10;
 
 const dynamoDbClient = new dynamodb.DynamoDBClient({
   region: "localhost",
@@ -21,8 +20,6 @@ const dynamoDbClient = new dynamodb.DynamoDBClient({
 const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
-
-const ulid = monotonicFactory();
 
 let count = 0;
 
@@ -60,47 +57,30 @@ const test: Test = {
   },
 
   async request() {
-    const timestamp = Date.now();
-
-    // Random peer-to-peer
-    const fromAccount = randomInt(1, ACCOUNT_COUNT);
-    let toAccount;
-    do {
-      toAccount = randomInt(1, ACCOUNT_COUNT);
-    } while (fromAccount === toAccount);
-
-    // Single hot account to many peers
-    // const fromAccount = 1;
-    // const toAccount = randomInt(2, ACCOUNT_COUNT);
-
-    const tx: Transfer = {
-      id: ulid(),
-      ledger: 700,
-      amount: 1 + randomInt(0, 1_000_000),
-      debit_account_id: fromAccount,
-      credit_account_id: toAccount,
-      code: 0,
-      flags: 0,
-      pending_id: undefined,
-      timeout: 0,
-      timestamp,
-    };
+    const txns = buildRandomTransactions(TRANSFERS_PER_BATCH, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
+      maxAccount: ACCOUNT_COUNT,
+    });
 
     try {
-      await createTransfer(documentClient, TABLE_NAME, tx);
+      await createTransfersBatch(documentClient, TABLE_NAME, txns);
+      if (count++ % 1_000 === 0) {
+        process.stdout.write(".");
+      }
     } catch (err) {
-      console.log({ message: "Transaction failed", tx, error: err });
-    }
-
-    if (count++ % 1_000 === 0) {
-      process.stdout.write(".");
+      console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
+      throw err;
     }
   },
 };
 
 const concurrency = 4;
 const arrivalRate = 1000; // requests per second
-const duration = 20; // seconds
+const durationSeconds = 20; // seconds
 
-const loadTest = new LoadTestDriver(concurrency, arrivalRate, duration, test);
+const loadTest = new LoadTestDriver(test, {
+  concurrency,
+  arrivalRate,
+  durationSeconds,
+  transactionsPerRequest: TRANSFERS_PER_BATCH,
+});
 await loadTest.run();

@@ -3,7 +3,7 @@ import * as ddc from "@aws-sdk/lib-dynamodb";
 import { randomInt } from "crypto";
 import { monotonicFactory } from "ulid";
 import { Transfer, createTransfer } from "../lib/transactions.js";
-import { LoadTestDriver, Test } from "../load-test/driver.js";
+import { LoadTestDriver, Test } from "./driver.js";
 import { setupAccounts } from "../lib/benchmarks.js";
 import PQueue from "p-queue";
 
@@ -62,12 +62,16 @@ const test: Test = {
   async request() {
     const timestamp = Date.now();
 
-    const fromAccount = 1; // randomInt(1, ACCOUNT_COUNT);
-    // let toAccount;
-    // do {
-    //   toAccount = randomInt(1, ACCOUNT_COUNT);
-    // } while (fromAccount === toAccount);
-    const toAccount = randomInt(2, ACCOUNT_COUNT);
+    // Random peer-to-peer
+    const fromAccount = randomInt(1, ACCOUNT_COUNT);
+    let toAccount;
+    do {
+      toAccount = randomInt(1, ACCOUNT_COUNT);
+    } while (fromAccount === toAccount);
+
+    // Single hot account to many peers
+    // const fromAccount = 1;
+    // const toAccount = randomInt(2, ACCOUNT_COUNT);
 
     const tx: Transfer = {
       id: ulid(),

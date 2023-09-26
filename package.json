@@ -6,8 +6,8 @@
     "accounting-db": "bin/accounting-db.js"
   },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
+    "build": "tsc --noEmit",
+    "watch": "tsc --noEmit -w",
     "test": "jest",
     "cdk": "cdk"
   },

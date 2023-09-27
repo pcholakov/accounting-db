@@ -44,24 +44,12 @@ export class AccountingDbStack extends cdk.Stack {
     queue.grantConsumeMessages(writerFunction);
 
     // Crate event source mapping for queue
-    const queueEventSourceMapping = new lambda.EventSourceMapping(this, "QueueEventSourceMapping", {
+    new lambda.EventSourceMapping(this, "QueueEventSourceMapping", {
       eventSourceArn: queue.queueArn,
       batchSize: 1,
       enabled: true,
       target: writerFunction,
     });
-
-    const benchmarkSetupAccounts = new lambda_node.NodejsFunction(this, "CreateAccounts", {
-      memorySize: 2048,
-      timeout: cdk.Duration.seconds(900),
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: "handler",
-      entry: path.join(__dirname, "lambda/create-accounts.ts"),
-      environment: {
-        TABLE_NAME: table.tableName,
-      },
-    });
-    table.grantWriteData(benchmarkSetupAccounts);
 
     const benchmarkTransfers = new lambda_node.NodejsFunction(this, "BenchmarkTransfers", {
       memorySize: 4096,

@@ -1,35 +1,31 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { randomInt } from "crypto";
-import PQueue from "p-queue";
 import { monotonicFactory } from "ulid";
 import { Transfer, createAccount } from "./transactions.js";
 
 const ulid = monotonicFactory();
 
 // Create a specified number of accounts beginging with id = 1, all starting out
-// with zero balances.
+// with zero balances. Note that this is not strictly required; the transaction
+// update logic assumes a zero balance if an account is not found.
 export async function setupAccounts(
   documentClient: ddc.DynamoDBDocumentClient,
   tableName: string,
-  queue: PQueue,
   accountCount: number,
   startingAccountId: number = 1,
 ) {
   for (let id = startingAccountId; id < accountCount; id += 100) {
     for (let batchId = id; batchId < id + 100 && batchId < accountCount; batchId++) {
-      queue.add(async () =>
-        createAccount(documentClient, tableName, {
-          id: batchId,
-          ledger: 700,
-          debits_pending: 0,
-          debits_posted: 0,
-          credits_pending: 0,
-          credits_posted: 0,
-        }),
-      );
+      await createAccount(documentClient, tableName, {
+        id: batchId,
+        ledger: 700,
+        debits_pending: 0,
+        debits_posted: 0,
+        credits_pending: 0,
+        credits_posted: 0,
+      });
     }
   }
-  await queue.onEmpty();
 }
 
 export enum AccountSelectionStrategy {

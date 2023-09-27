@@ -1,4 +1,4 @@
-import { LoadTestDriver, Test, sleep } from "../load-test/driver.js";
+import { LoadTestDriver, Test, sleep } from "../lib/load-tests.js";
 
 const test: Test = {
   async setup() {},

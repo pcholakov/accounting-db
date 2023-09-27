@@ -1,9 +1,8 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import PQueue from "p-queue";
 import { AccountSelectionStrategy, buildRandomTransactions } from "../lib/benchmarks.js";
 import { createTransfersBatch } from "../lib/transactions.js";
-import { LoadTestDriver, Test } from "./driver.js";
+import { LoadTestDriver, Test } from "../lib/load-tests.js";
 
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 const ACCOUNT_COUNT = 10_000;
@@ -47,8 +46,6 @@ const test: Test = {
         BillingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       }),
     );
-
-    // await setupAccounts(documentClient, TABLE_NAME, new PQueue({ concurrency: 10 }), ACCOUNT_COUNT);
   },
 
   async teardown() {

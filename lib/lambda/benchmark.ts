@@ -1,7 +1,7 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { Handler } from "aws-lambda";
-import { LoadTestDriver, Test } from "../../load-test/driver.js";
+import { LoadTestDriver, Test } from "../load-tests.js";
 import { AccountSelectionStrategy, buildRandomTransactions } from "../benchmarks.js";
 import { createTransfersBatch } from "../transactions.js";
 import { inspect } from "util";

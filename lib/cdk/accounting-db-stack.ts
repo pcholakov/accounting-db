@@ -26,7 +26,8 @@ export class AccountingDbStack extends cdk.Stack {
         name: "sk",
         type: dynamodb.AttributeType.STRING,
       },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      contributorInsightsEnabled: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // Don't do this with real data you care about!
     });
 
     const writerFunction = new lambda_node.NodejsFunction(this, "Writer", {
@@ -34,7 +35,7 @@ export class AccountingDbStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(5),
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: "handler",
-      entry: path.join(__dirname, "lambda/writer.ts"),
+      entry: path.join(__dirname, "../lambda/writer.ts"),
       environment: {
         QUEUE_NAME: queue.queueName,
         TABLE_NAME: table.tableName,
@@ -56,7 +57,7 @@ export class AccountingDbStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(600),
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: "handler",
-      entry: path.join(__dirname, "lambda/benchmark.ts"),
+      entry: path.join(__dirname, "../lambda/benchmark.ts"),
       environment: {
         TABLE_NAME: table.tableName,
       },

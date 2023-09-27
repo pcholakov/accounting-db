@@ -1,6 +1,6 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { AccountSelectionStrategy, buildRandomTransactions } from "../lib/benchmarks.js";
+import { AccountSelectionStrategy, buildRandomTransactions } from "../lib/generators.js";
 import { createTransfersBatch } from "../lib/transactions.js";
 import { LoadTestDriver, Test } from "../lib/load-tests.js";
 

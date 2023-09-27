@@ -18,4 +18,4 @@ const arrivalRate = 100; // requests per second
 const durationSeconds = 3;
 
 const loadTest = new LoadTestDriver(test, { concurrency, arrivalRate, durationSeconds });
-await loadTest.run();
+console.log(await loadTest.run());

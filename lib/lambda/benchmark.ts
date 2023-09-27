@@ -2,7 +2,7 @@ import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { Handler } from "aws-lambda";
 import { LoadTestDriver, Test } from "../load-tests.js";
-import { AccountSelectionStrategy, buildRandomTransactions } from "../benchmarks.js";
+import { AccountSelectionStrategy, buildRandomTransactions } from "../generators.js";
 import { createTransfersBatch } from "../transactions.js";
 import { inspect } from "util";
 
@@ -48,6 +48,7 @@ export const handler: Handler = async (event, context) => {
     durationSeconds,
     transactionsPerRequest: BATCH_SIZE,
   });
-  await loadTest.run();
-  console.log({ message: "Done." });
+  const result = await loadTest.run();
+  console.log({ message: "Done.", result });
+  return result;
 };

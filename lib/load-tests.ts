@@ -38,7 +38,7 @@ export class LoadTestDriver {
     this._durationMicros = createHistogram();
   }
 
-  async run(): Promise<void> {
+  async run(): Promise<any> {
     await this.test.setup();
 
     const intervalMs = (1000 * this.concurrency) / this.arrivalRate;
@@ -96,13 +96,13 @@ export class LoadTestDriver {
     }
 
     await Promise.all(workers);
-    await this.stop();
+    return this.stop();
   }
 
-  async stop(): Promise<void> {
+  async stop(): Promise<any> {
     await this.test.teardown();
 
-    console.log({
+    return {
       configuration: {
         concurrency: this.concurrency,
         targetArrivalRate: this.arrivalRate,
@@ -126,7 +126,7 @@ export class LoadTestDriver {
         p99_9: this._durationMicros.percentile(99.9) / 1_000,
         p100: this._durationMicros.max / 1_000,
       },
-    });
+    };
   }
 }
 

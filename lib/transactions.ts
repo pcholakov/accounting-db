@@ -108,9 +108,7 @@ export async function createTransfersBatch(
   tableName: string,
   batch: Transfer[],
 ): Promise<TransferResult> {
-  if (batch.length > 33) {
-    throw new Error("Assertion error: Batch size too large");
-  }
+  assert(batch.length <= 33);
 
   const items: TransactItems = [];
   const pendingUpdates: Map<AccountId, ItemType> = new Map();
@@ -128,15 +126,13 @@ export async function createTransfersBatch(
       },
     });
 
-    const debitAccountPendingTx = pendingUpdates.get(transfer.debit_account_id);
-    const creditAccountPendingTx = pendingUpdates.get(transfer.credit_account_id);
-
-    // Notes on DynamoDB operations:
+    // Notes on DynamoDB account item operations:
     // - We use ADD instead of SET for balance updates, which effectively turns account balance updates into "upserts"
     //   and avoids needing to create millions of accounts upfront.
     // - We don't enforce this in benchmark mode, but we could delegate business invariants to DynamoDB using conditions like this:
     //   ConditionExpression: "debits_posted >= credits_posted"
 
+    const debitAccountPendingTx = pendingUpdates.get(transfer.debit_account_id);
     if (debitAccountPendingTx) {
       const debit_amount = debitAccountPendingTx?.Update?.ExpressionAttributeValues?.[":debit_amount"];
       assert(debit_amount !== undefined);
@@ -160,6 +156,7 @@ export async function createTransfersBatch(
       pendingUpdates.set(transfer.debit_account_id, updateDebitBalance);
     }
 
+    const creditAccountPendingTx = pendingUpdates.get(transfer.credit_account_id);
     if (creditAccountPendingTx) {
       const credit_amount = creditAccountPendingTx?.Update?.ExpressionAttributeValues?.[":credit_amount"];
       assert(credit_amount !== undefined);

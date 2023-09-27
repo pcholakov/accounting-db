@@ -16,8 +16,28 @@ export class AccountingDbStack extends cdk.Stack {
 
     const queue = new sqs.Queue(this, "TxWrites", {});
 
-    const table = new dynamodb.Table(this, "AccountsTable", {
+    /// On-demand gives us adaptive capacity that scales down to zero when not
+    /// in use; you should get a baseline of 10,000 WCU which allows up to ~3333
+    /// tranfsers/second. Sustained usage will cause DynamoDB to raise the limit
+    /// at increments of 30 minutes.
+    const onDemandBilling = {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    };
+
+    /// Provisioned throughput allows us to specify the required capacity
+    /// upfront. You will pay for this capacity it until the table is deleted,
+    /// in full hour increments. If you re-create the table at a different
+    /// capacity, you should only be billed for the maximum _active_ provisioned
+    /// capacity within a given hour.
+    // const provisionedThroughputBilling = {
+    //   billingMode: dynamodb.BillingMode.PROVISIONED,
+    //   writeCapacity: 20_000,
+    //   readCapacity: 5,
+    // };
+
+    const table = new dynamodb.Table(this, "AccountsTable", {
+      ...onDemandBilling,
+
       partitionKey: {
         name: "pk",
         type: dynamodb.AttributeType.STRING,
@@ -26,6 +46,7 @@ export class AccountingDbStack extends cdk.Stack {
         name: "sk",
         type: dynamodb.AttributeType.STRING,
       },
+
       contributorInsightsEnabled: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY, // Don't do this with real data you care about!
     });

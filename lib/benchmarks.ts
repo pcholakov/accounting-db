@@ -1,8 +1,8 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
+import { randomInt } from "crypto";
 import PQueue from "p-queue";
 import { monotonicFactory } from "ulid";
 import { Transfer, createAccount } from "./transactions.js";
-import { randomInt } from "crypto";
 
 const ulid = monotonicFactory();
 
@@ -13,18 +13,21 @@ export async function setupAccounts(
   tableName: string,
   queue: PQueue,
   accountCount: number,
+  startingAccountId: number = 1,
 ) {
-  for (let id = 1; id < accountCount; id++) {
-    queue.add(async () =>
-      createAccount(documentClient, tableName, {
-        id: id,
-        ledger: 700,
-        debits_pending: 0,
-        debits_posted: 0,
-        credits_pending: 0,
-        credits_posted: 0,
-      }),
-    );
+  for (let id = startingAccountId; id < accountCount; id += 100) {
+    for (let batchId = id; batchId < id + 100 && batchId < accountCount; batchId++) {
+      queue.add(async () =>
+        createAccount(documentClient, tableName, {
+          id: batchId,
+          ledger: 700,
+          debits_pending: 0,
+          debits_posted: 0,
+          credits_pending: 0,
+          credits_posted: 0,
+        }),
+      );
+    }
   }
   await queue.onEmpty();
 }
@@ -38,7 +41,7 @@ export function buildRandomTransactions(
   count: number,
   accountSelection: AccountSelectionStrategy,
   opts: {
-    maxAccount: number;
+    numAccounts: number;
   },
 ): Transfer[] {
   const timestamp = Date.now();
@@ -50,15 +53,15 @@ export function buildRandomTransactions(
 
     switch (accountSelection) {
       case AccountSelectionStrategy.RANDOM_PEER_TO_PEER:
-        fromAccount = randomInt(1, opts.maxAccount);
+        fromAccount = randomInt(1, opts.numAccounts);
         do {
-          toAccount = randomInt(1, opts.maxAccount);
+          toAccount = randomInt(1, opts.numAccounts);
         } while (fromAccount === toAccount);
         break;
 
       case AccountSelectionStrategy.HOT_SPOT_RANDOM_PEERS:
         fromAccount = 1;
-        toAccount = randomInt(2, opts.maxAccount);
+        toAccount = randomInt(2, opts.numAccounts);
         break;
 
       default:
@@ -68,7 +71,7 @@ export function buildRandomTransactions(
     transfers.push({
       id: ulid(),
       ledger: 700,
-      amount: 1 + randomInt(0, opts.maxAccount),
+      amount: 1 + randomInt(0, opts.numAccounts),
       debit_account_id: fromAccount,
       credit_account_id: toAccount,
       code: 0,

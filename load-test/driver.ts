@@ -12,8 +12,9 @@ export class LoadTestDriver {
   private test: Test;
   private overallDurationMs: number;
   private warmupDurationMs: number;
-  private _durationMicrosHistogram: RecordableHistogram;
+  private _durationMicros: RecordableHistogram;
   private _requestCount: number = 0;
+  private _workUnitsCount: number = 0;
   private _errorCount: number = 0;
   private benchmarkDurationMs: number;
   private transactionsPerRequest: number;
@@ -34,7 +35,7 @@ export class LoadTestDriver {
     this.warmupDurationMs = Math.min(this.overallDurationMs / 10, 10_000); // 10% of duration or 10s, whichever is smaller
     this.benchmarkDurationMs = this.overallDurationMs - this.warmupDurationMs;
     this.test = test;
-    this._durationMicrosHistogram = createHistogram();
+    this._durationMicros = createHistogram();
   }
 
   async run(): Promise<void> {
@@ -71,16 +72,17 @@ export class LoadTestDriver {
         try {
           await this.test.request();
         } catch (error) {
-          this._errorCount += this.transactionsPerRequest;
+          this._errorCount += 1;
         }
         const iterationEnd = performance.now();
 
         const iterationDurationMicros = (iterationEnd - iterationStart) * 1_000;
-        this._requestCount += this.transactionsPerRequest;
+        this._requestCount += 1;
+        this._workUnitsCount += this.transactionsPerRequest;
         const durationInt = Math.floor(iterationDurationMicros);
         if (durationInt > 0) {
           // TODO: surface zero durations to the user
-          this._durationMicrosHistogram.record(durationInt);
+          this._durationMicros.record(durationInt);
         }
 
         if (iterationDurationMicros < intervalMs) {
@@ -107,35 +109,24 @@ export class LoadTestDriver {
         duration: this.overallDurationMs,
         warmup: this.warmupDurationMs,
       },
-      requestCount: this.requestCount(),
-      errorCount: this.errorCount(),
-      errorRate: this.errorCount() / this.requestCount(),
-      throughput: (this.requestCount() * 1_000) / this.benchmarkDurationMs,
-      arrivalRateRatio: (this.requestCount() * 1_000) / this.benchmarkDurationMs / this.arrivalRate,
+      requestCount: this._requestCount,
+      errorCount: this._errorCount,
+      errorRate: this._errorCount / this._requestCount,
+      requestRate: (this._requestCount * 1_000) / this.benchmarkDurationMs,
+      workUnitThroughput: (this._workUnitsCount * 1_000) / this.benchmarkDurationMs,
+      arrivalRateRatio: (this._requestCount * 1_000) / this.benchmarkDurationMs / this.arrivalRate,
       durationsMillis: {
-        avg: this.histogram().mean / 1_000,
-        p0: this.histogram().min / 1_000,
-        p50: this.histogram().percentile(50) / 1_000,
-        p75: this.histogram().percentile(75) / 1_000,
-        p90: this.histogram().percentile(90) / 1_000,
-        p95: this.histogram().percentile(95) / 1_000,
-        p99: this.histogram().percentile(99) / 1_000,
-        p99_9: this.histogram().percentile(99.9) / 1_000,
-        p100: this.histogram().max / 1_000,
+        avg: this._durationMicros.mean / 1_000,
+        p0: this._durationMicros.min / 1_000,
+        p50: this._durationMicros.percentile(50) / 1_000,
+        p75: this._durationMicros.percentile(75) / 1_000,
+        p90: this._durationMicros.percentile(90) / 1_000,
+        p95: this._durationMicros.percentile(95) / 1_000,
+        p99: this._durationMicros.percentile(99) / 1_000,
+        p99_9: this._durationMicros.percentile(99.9) / 1_000,
+        p100: this._durationMicros.max / 1_000,
       },
     });
-  }
-
-  requestCount() {
-    return this._requestCount;
-  }
-
-  errorCount() {
-    return this._errorCount;
-  }
-
-  histogram(): Histogram {
-    return this._durationMicrosHistogram;
   }
 }
 

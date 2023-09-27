@@ -35,33 +35,46 @@ export enum TransferResult {
   INSUFFICIENT_FUNDS,
 }
 
+type TransactItems = TransactWriteCommandInput["TransactItems"];
+type ItemType = NonNullable<TransactItems>[number];
+
 export async function createAccount(
   documentClient: ddc.DynamoDBDocumentClient,
   tableName: string,
   account: Account,
 ): Promise<void> {
-  const { id, ledger, debits_pending, debits_posted, credits_pending, credits_posted, timestamp } = account;
+  return createAccountsBatch(documentClient, tableName, [account]);
+}
+
+export async function createAccountsBatch(
+  documentClient: ddc.DynamoDBDocumentClient,
+  tableName: string,
+  accounts: Account[],
+): Promise<void> {
+  const items: TransactItems = [];
+  for (const account of accounts) {
+    const { id, ledger, debits_pending, debits_posted, credits_pending, credits_posted, timestamp } = account;
+    items.push({
+      Put: {
+        TableName: tableName,
+        Item: {
+          pk: `account#${id}`,
+          sk: `account#${id}`,
+          ledger,
+          debits_pending,
+          debits_posted,
+          credits_pending,
+          credits_posted,
+          timestamp,
+        },
+        ConditionExpression: "attribute_not_exists(pk)",
+      },
+    });
+  }
   await documentClient.send(
     new ddc.TransactWriteCommand({
       ClientRequestToken: randomUUID(),
-      TransactItems: [
-        {
-          Put: {
-            TableName: tableName,
-            Item: {
-              pk: `account#${id}`,
-              sk: `account#${id}`,
-              ledger,
-              debits_pending,
-              debits_posted,
-              credits_pending,
-              credits_posted,
-              timestamp,
-            },
-            ConditionExpression: "attribute_not_exists(pk)",
-          },
-        },
-      ],
+      TransactItems: items,
     }),
   );
 }
@@ -99,8 +112,6 @@ export async function createTransfersBatch(
     throw new Error("Assertion error: Batch size too large");
   }
 
-  type TransactItems = TransactWriteCommandInput["TransactItems"];
-  type ItemType = NonNullable<TransactItems>[number];
   const items: TransactItems = [];
   const pendingUpdates: Map<AccountId, ItemType> = new Map();
 

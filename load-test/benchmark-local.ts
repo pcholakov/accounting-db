@@ -58,7 +58,7 @@ const test: Test = {
 
   async request() {
     const txns = buildRandomTransactions(TRANSFERS_PER_BATCH, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
-      maxAccount: ACCOUNT_COUNT,
+      numAccounts: ACCOUNT_COUNT,
     });
 
     try {

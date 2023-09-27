@@ -4,10 +4,13 @@ import { Handler } from "aws-lambda";
 import { LoadTestDriver, Test } from "../../load-test/driver.js";
 import { AccountSelectionStrategy, buildRandomTransactions } from "../benchmarks.js";
 import { createTransfersBatch } from "../transactions.js";
+import { inspect } from "util";
+
+inspect.defaultOptions.depth = 5;
 
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
-const ACCOUNT_COUNT = 10_000;
-const TRANSFERS_PER_BATCH = 33;
+const NUMBER_OF_ACCOUNTS = Number.parseInt(process.env["NUMBER_OF_ACCOUNTS"] ?? `${1_000_000}`);
+const BATCH_SIZE = Number.parseInt(process.env["BATCH_SIZE"] ?? "33");
 
 const dynamoDbClient = new dynamodb.DynamoDBClient();
 const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
@@ -20,8 +23,8 @@ const test: Test = {
   async teardown() {},
 
   async request() {
-    const txns = buildRandomTransactions(TRANSFERS_PER_BATCH, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
-      maxAccount: ACCOUNT_COUNT,
+    const txns = buildRandomTransactions(BATCH_SIZE, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
+      numAccounts: NUMBER_OF_ACCOUNTS,
     });
 
     try {
@@ -43,7 +46,7 @@ export const handler: Handler = async (event, context) => {
     concurrency,
     arrivalRate,
     durationSeconds,
-    transactionsPerRequest: TRANSFERS_PER_BATCH,
+    transactionsPerRequest: BATCH_SIZE,
   });
   await loadTest.run();
   console.log({ message: "Done." });

@@ -53,7 +53,7 @@ export class AccountingDbStack extends cdk.Stack {
 
     const benchmarkSetupAccounts = new lambda_node.NodejsFunction(this, "CreateAccounts", {
       memorySize: 2048,
-      timeout: cdk.Duration.seconds(120),
+      timeout: cdk.Duration.seconds(900),
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: "handler",
       entry: path.join(__dirname, "lambda/create-accounts.ts"),
@@ -64,7 +64,7 @@ export class AccountingDbStack extends cdk.Stack {
     table.grantWriteData(benchmarkSetupAccounts);
 
     const benchmarkTransfers = new lambda_node.NodejsFunction(this, "BenchmarkTransfers", {
-      memorySize: 8192,
+      memorySize: 4096,
       timeout: cdk.Duration.seconds(600),
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: "handler",

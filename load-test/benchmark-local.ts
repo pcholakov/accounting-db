@@ -1,7 +1,7 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import PQueue from "p-queue";
-import { AccountSelectionStrategy, buildRandomTransactions, setupAccounts } from "../lib/benchmarks.js";
+import { AccountSelectionStrategy, buildRandomTransactions } from "../lib/benchmarks.js";
 import { createTransfersBatch } from "../lib/transactions.js";
 import { LoadTestDriver, Test } from "./driver.js";
 
@@ -48,7 +48,7 @@ const test: Test = {
       }),
     );
 
-    await setupAccounts(documentClient, TABLE_NAME, new PQueue({ concurrency: 10 }), ACCOUNT_COUNT);
+    // await setupAccounts(documentClient, TABLE_NAME, new PQueue({ concurrency: 10 }), ACCOUNT_COUNT);
   },
 
   async teardown() {

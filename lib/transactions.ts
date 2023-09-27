@@ -131,6 +131,12 @@ export async function createTransfersBatch(
     const debitAccountPendingTx = pendingUpdates.get(transfer.debit_account_id);
     const creditAccountPendingTx = pendingUpdates.get(transfer.credit_account_id);
 
+    // Notes on DynamoDB operations:
+    // - We use ADD instead of SET for balance updates, which effectively turns account balance updates into "upserts"
+    //   and avoids needing to create millions of accounts upfront.
+    // - We don't enforce this in benchmark mode, but we could delegate business invariants to DynamoDB using conditions like this:
+    //   ConditionExpression: "debits_posted >= credits_posted"
+
     if (debitAccountPendingTx) {
       const debit_amount = debitAccountPendingTx?.Update?.ExpressionAttributeValues?.[":debit_amount"];
       assert(debit_amount !== undefined);
@@ -143,14 +149,13 @@ export async function createTransfersBatch(
             pk: `account#${transfer.debit_account_id}`,
             sk: `account#${transfer.debit_account_id}`,
           },
-          UpdateExpression:
-            "SET debits_posted = debits_posted + :debit_amount, credits_posted = credits_posted + :credit_amount",
+          UpdateExpression: "ADD debits_posted :debit_amount, credits_posted :credit_amount",
           ExpressionAttributeValues: {
             ":debit_amount": transfer.amount,
             ":credit_amount": 0,
           },
         },
-      };
+      } as ItemType;
       items.push(updateDebitBalance);
       pendingUpdates.set(transfer.debit_account_id, updateDebitBalance);
     }
@@ -167,14 +172,13 @@ export async function createTransfersBatch(
             pk: `account#${transfer.credit_account_id}`,
             sk: `account#${transfer.credit_account_id}`,
           },
-          UpdateExpression:
-            "SET debits_posted = debits_posted + :debit_amount, credits_posted = credits_posted + :credit_amount",
+          UpdateExpression: "ADD debits_posted :debit_amount, credits_posted :credit_amount",
           ExpressionAttributeValues: {
             ":debit_amount": 0,
             ":credit_amount": transfer.amount,
           },
         },
-      };
+      } as ItemType;
       items.push(updateCreditBalance);
       pendingUpdates.set(transfer.credit_account_id, updateCreditBalance);
     }

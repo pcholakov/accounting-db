@@ -1,10 +1,11 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { Handler } from "aws-lambda";
-import { LoadTestDriver, Test } from "../load-tests.js";
-import { AccountSelectionStrategy, buildRandomTransactions } from "../generators.js";
-import { createTransfersBatch } from "../transactions.js";
+import pRetry from "p-retry";
 import { inspect } from "util";
+import { AccountSelectionStrategy, buildRandomTransactions } from "../generators.js";
+import { LoadTestDriver, Test } from "../load-tests.js";
+import { createTransfersBatch } from "../transactions.js";
 
 inspect.defaultOptions.depth = 5;
 
@@ -27,8 +28,26 @@ const test: Test = {
       numAccounts: NUMBER_OF_ACCOUNTS,
     });
 
+    // Naively retry the entire batch. A better approach may be to split out just
+    // the conflicting items and retry those in a separate transaction. Since we
+    // don't return partial success currently, it doesn't make much difference,
+    // but in a highly contended scenario that would increase the goodput.
+    const retryStrategy = async (fn: () => Promise<void>) =>
+      pRetry(
+        async () => {
+          await fn();
+        },
+        {
+          retries: 3,
+          minTimeout: 20, // ~half of empirically observed p50 latency for large transactions
+          factor: 1.2,
+          randomize: true, // apply a random 100-200% jitter to retry intervals
+          maxTimeout: 60,
+        },
+      );
+
     try {
-      await createTransfersBatch(documentClient, TABLE_NAME, txns);
+      await createTransfersBatch(documentClient, TABLE_NAME, txns, retryStrategy);
     } catch (err) {
       console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
       throw err;

@@ -21,7 +21,8 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
 
 const TABLE_NAME = "transactions";
 
-describe("transactions", () => {
+// Requires a DynamoDB Local to be running on port 8000.
+describe("transactions integration test", () => {
   beforeAll(async () => {
     try {
       await dynamoDbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));

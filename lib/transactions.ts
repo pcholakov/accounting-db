@@ -1,7 +1,7 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { randomUUID } from "crypto";
 import { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import assert from "assert";
+import { randomUUID } from "crypto";
 
 export interface Transfer {
   id: IdType;
@@ -37,6 +37,9 @@ export enum TransferResult {
 
 type TransactItems = TransactWriteCommandInput["TransactItems"];
 type ItemType = NonNullable<TransactItems>[number];
+
+type RetryStrategy = (fn: () => Promise<void>) => void;
+const noRetry: RetryStrategy = async (fn) => fn();
 
 export async function createAccount(
   documentClient: ddc.DynamoDBDocumentClient,
@@ -107,6 +110,7 @@ export async function createTransfersBatch(
   documentClient: ddc.DynamoDBDocumentClient,
   tableName: string,
   batch: Transfer[],
+  retry: RetryStrategy = noRetry,
 ): Promise<TransferResult> {
   assert(batch.length <= 33);
 
@@ -181,12 +185,14 @@ export async function createTransfersBatch(
     }
   });
 
-  await documentClient.send(
-    new ddc.TransactWriteCommand({
-      ClientRequestToken: randomUUID(),
-      TransactItems: items,
-    }),
-  );
+  await retry(async () => {
+    await documentClient.send(
+      new ddc.TransactWriteCommand({
+        ClientRequestToken: randomUUID(),
+        TransactItems: items,
+      }),
+    );
+  });
 
   return TransferResult.OK;
 }

@@ -35,8 +35,8 @@ class CreateTransfers extends AbstractBaseTest {
   }
 
   async request() {
-    const txns = buildRandomTransactions(BATCH_SIZE, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
-      numAccounts: NUMBER_OF_ACCOUNTS,
+    const txns = buildRandomTransactions(this.transferBatchSize, this.accountSelectionStrategy, {
+      numAccounts: this.numAccounts,
     });
 
     // Naively retry the entire batch. A better approach may be to split out just
@@ -86,7 +86,6 @@ export const handler: Handler = async (event, context) => {
       concurrency,
       targetRequestRatePerSecond: arrivalRate,
       durationSeconds,
-      transactionsPerRequest: BATCH_SIZE,
     },
   );
   const result = await loadTest.run();

@@ -20,8 +20,8 @@ export abstract class AbstractBaseTest implements Test {
   requestsPerIteration() {
     return 1;
   }
-  config() {
-    return undefined;
+  config(): object {
+    return {};
   }
 }
 
@@ -61,8 +61,7 @@ export class LoadTestDriver {
   async run(): Promise<any> {
     await this.test.setup();
 
-    const avgIterationDuration = this.concurrency / (this.targetRps / this.requestsPerIteration);
-    const workerIterationLengthMs = 1000 * avgIterationDuration;
+    const workerIterationLengthMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);
     const startTime = performance.now();
     const warmupEndime = startTime + this.warmupDurationMs;
     const endTime = startTime + this.overallDurationMs;
@@ -112,7 +111,7 @@ export class LoadTestDriver {
         if (iterationDurationMillis < workerIterationLengthMs) {
           const backoffTimeMillis = workerIterationLengthMs - iterationDurationMillis;
           this.workerBackoffTime += backoffTimeMillis;
-          await sleep(backoffTimeMillis);
+          if (backoffTimeMillis > 0) await sleep(backoffTimeMillis);
         }
       } while (performance.now() < endTime);
     };

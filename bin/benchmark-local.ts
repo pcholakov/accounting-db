@@ -1,8 +1,12 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { AccountSelectionStrategy, buildRandomTransactions } from "../lib/generators.js";
-import { createTransfersBatch } from "../lib/transactions.js";
-import { LoadTestDriver, Test } from "../lib/load-tests.js";
+import { createTransfersBatch, getAccount } from "../lib/transactions.js";
+import { AbstractBaseTest, LoadTestDriver, Test } from "../lib/load-tests.js";
+import { randomInt } from "crypto";
+import { inspect } from "util";
+
+inspect.defaultOptions.depth = 5;
 
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 
@@ -95,14 +99,53 @@ class CreateTransfers implements Test {
   }
 }
 
+class ReadBalances extends AbstractBaseTest {
+  private readonly numAccounts: number;
+  private readonly readsPerRequest: number;
+
+  constructor(opts: { numAccounts: number; readsPerRequest?: number }) {
+    super();
+    this.numAccounts = opts.numAccounts;
+    this.readsPerRequest = opts.readsPerRequest ?? 1;
+  }
+
+  async request() {
+    for (let i = 0; i < this.readsPerRequest; i++) {
+      await getAccount(documentClient, TABLE_NAME, randomInt(1, this.numAccounts));
+    }
+  }
+
+  requestsPerIteration(): number {
+    return this.readsPerRequest;
+  }
+
+  config() {
+    return {
+      numAccounts: this.numAccounts,
+    };
+  }
+}
+
+const durationSeconds = 10;
+const numAccounts = 1_000;
+
 const createTransfersTest = new CreateTransfers({
-  transferBatchSize: 33,
-  numAccounts: 100_000,
+  transferBatchSize: 10,
+  numAccounts,
   accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
 });
-const loadTest = new LoadTestDriver(createTransfersTest, {
-  targetRequestRatePerSecond: 2_000,
-  concurrency: 4,
-  durationSeconds: 10,
+const writeWorkload = new LoadTestDriver(createTransfersTest, {
+  targetRequestRatePerSecond: 1_000,
+  concurrency: 2,
+  durationSeconds,
 });
-console.log(await loadTest.run());
+
+const readBalancesTest = new ReadBalances({ numAccounts, readsPerRequest: 1 });
+const readWorkload = new LoadTestDriver(readBalancesTest, {
+  targetRequestRatePerSecond: 2_000,
+  concurrency: 20,
+  durationSeconds,
+});
+
+const [write, read] = await Promise.allSettled([writeWorkload.run(), readWorkload.run()]);
+console.log({ write, read });

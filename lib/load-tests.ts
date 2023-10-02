@@ -1,4 +1,4 @@
-import { Histogram, RecordableHistogram, createHistogram, performance } from "perf_hooks";
+import { RecordableHistogram, createHistogram, performance } from "perf_hooks";
 
 export interface Test {
   setup(): Promise<void>;

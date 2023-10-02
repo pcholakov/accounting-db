@@ -5,8 +5,6 @@ import { createTransfersBatch } from "../lib/transactions.js";
 import { LoadTestDriver, Test } from "../lib/load-tests.js";
 
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
-const ACCOUNT_COUNT = 10_000;
-const TRANSFERS_PER_BATCH = 10;
 
 const dynamoDbClient = new dynamodb.DynamoDBClient({
   region: "localhost",
@@ -20,9 +18,23 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
 
-let count = 0;
+let _activityProgressCounter = 0;
 
-const test: Test = {
+class CreateTransfers implements Test {
+  private readonly transferBatchSize: number;
+  private readonly numAccounts: number;
+  private readonly accountSelectionStrategy;
+
+  constructor(opts: {
+    transferBatchSize: number;
+    numAccounts: number;
+    accountSelectionStrategy: AccountSelectionStrategy;
+  }) {
+    this.transferBatchSize = opts.transferBatchSize;
+    this.numAccounts = opts.numAccounts;
+    this.accountSelectionStrategy = opts.accountSelectionStrategy;
+  }
+
   async setup() {
     try {
       await dynamoDbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));
@@ -46,38 +58,51 @@ const test: Test = {
         BillingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       }),
     );
-  },
+  }
 
   async teardown() {
     process.stdout.write("\n");
     await dynamoDbClient.send(new dynamodb.DeleteTableCommand({ TableName: TABLE_NAME }));
-  },
+  }
 
   async request() {
-    const txns = buildRandomTransactions(TRANSFERS_PER_BATCH, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
-      numAccounts: ACCOUNT_COUNT,
+    const txns = buildRandomTransactions(this.transferBatchSize, this.accountSelectionStrategy, {
+      numAccounts: this.numAccounts,
     });
 
     try {
       await createTransfersBatch(documentClient, TABLE_NAME, txns);
-      if (count++ % 1_000 === 0) {
+      _activityProgressCounter += txns.length;
+      if (_activityProgressCounter % 100 == 0) {
         process.stdout.write(".");
       }
     } catch (err) {
       console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
       throw err;
     }
-  },
-};
+  }
 
-const concurrency = 4;
-const arrivalRate = 1000; // requests per second
-const durationSeconds = 20; // seconds
+  requestsPerIteration() {
+    return this.transferBatchSize;
+  }
 
-const loadTest = new LoadTestDriver(test, {
-  concurrency,
-  arrivalRate,
-  durationSeconds,
-  transactionsPerRequest: TRANSFERS_PER_BATCH,
+  config() {
+    return {
+      transferBatchSize: this.transferBatchSize,
+      numAccounts: this.numAccounts,
+      accountSelectionStrategy: this.accountSelectionStrategy,
+    };
+  }
+}
+
+const createTransfersTest = new CreateTransfers({
+  transferBatchSize: 33,
+  numAccounts: 100_000,
+  accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
 });
-await loadTest.run();
+const loadTest = new LoadTestDriver(createTransfersTest, {
+  targetRequestRatePerSecond: 2_000,
+  concurrency: 4,
+  durationSeconds: 10,
+});
+console.log(await loadTest.run());

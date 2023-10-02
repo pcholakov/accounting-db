@@ -4,7 +4,7 @@ import { Handler } from "aws-lambda";
 import pRetry from "p-retry";
 import { inspect } from "util";
 import { AccountSelectionStrategy, buildRandomTransactions } from "../generators.js";
-import { LoadTestDriver, Test } from "../load-tests.js";
+import { AbstractBaseTest, LoadTestDriver, Test } from "../load-tests.js";
 import { createTransfersBatch } from "../transactions.js";
 
 inspect.defaultOptions.depth = 5;
@@ -18,10 +18,21 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
 
-const test: Test = {
-  async setup() {},
+class CreateTransfers extends AbstractBaseTest {
+  private readonly transferBatchSize: number;
+  private readonly numAccounts: number;
+  private readonly accountSelectionStrategy;
 
-  async teardown() {},
+  constructor(opts: {
+    transferBatchSize: number;
+    numAccounts: number;
+    accountSelectionStrategy: AccountSelectionStrategy;
+  }) {
+    super();
+    this.transferBatchSize = opts.transferBatchSize;
+    this.numAccounts = opts.numAccounts;
+    this.accountSelectionStrategy = opts.accountSelectionStrategy;
+  }
 
   async request() {
     const txns = buildRandomTransactions(BATCH_SIZE, AccountSelectionStrategy.RANDOM_PEER_TO_PEER, {
@@ -52,8 +63,12 @@ const test: Test = {
       console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
       throw err;
     }
-  },
-};
+  }
+
+  requestsPerIteration() {
+    return this.transferBatchSize;
+  }
+}
 
 export const handler: Handler = async (event, context) => {
   const concurrency = event.concurrency ?? 4;
@@ -61,12 +76,19 @@ export const handler: Handler = async (event, context) => {
   const durationSeconds = event.durationSeconds ?? 60;
 
   console.log({ message: `Running load test with ${{ concurrency, arrivalRate, duration: durationSeconds }}...` });
-  const loadTest = new LoadTestDriver(test, {
-    concurrency,
-    arrivalRate,
-    durationSeconds,
-    transactionsPerRequest: BATCH_SIZE,
-  });
+  const loadTest = new LoadTestDriver(
+    new CreateTransfers({
+      transferBatchSize: BATCH_SIZE,
+      numAccounts: NUMBER_OF_ACCOUNTS,
+      accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
+    }),
+    {
+      concurrency,
+      targetRequestRatePerSecond: arrivalRate,
+      durationSeconds,
+      transactionsPerRequest: BATCH_SIZE,
+    },
+  );
   const result = await loadTest.run();
   console.log({ message: "Done.", result });
   return result;

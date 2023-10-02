@@ -14,6 +14,7 @@ export function buildRandomTransactions(
   accountSelection: AccountSelectionStrategy,
   opts: {
     numAccounts: number;
+    hotAccounts?: number;
   },
 ): Transfer[] {
   const timestamp = Date.now();
@@ -32,8 +33,8 @@ export function buildRandomTransactions(
         break;
 
       case AccountSelectionStrategy.HOT_SPOT_RANDOM_PEERS:
-        fromAccount = 1;
-        toAccount = randomInt(2, opts.numAccounts);
+        fromAccount = opts.hotAccounts && opts.hotAccounts > 1 ? randomInt(1, 1 + opts.hotAccounts) : 1;
+        toAccount = randomInt(1 + (opts.hotAccounts ?? 1), 1 + opts.numAccounts);
         break;
 
       default:

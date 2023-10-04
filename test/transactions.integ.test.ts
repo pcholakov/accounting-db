@@ -1,6 +1,17 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { Transfer, TransferResult, createAccount, createTransfersBatch, getAccount } from "../lib/transactions.js";
+import * as matchers from "jest-extended";
+import {
+  Account,
+  Transfer,
+  TransferResult,
+  createAccount,
+  createTransfersBatch,
+  getAccount,
+  getAccountsBatch,
+} from "../lib/transactions.js";
+
+expect.extend(matchers);
 
 const util = require("util");
 
@@ -157,6 +168,9 @@ describe("transactions integration test", () => {
           credits_posted: 30,
         },
       ]);
+
+      const accounts2 = await getAccountsBatch(documentClient, TABLE_NAME, [1, 2, 3]);
+      expect(accounts2).toIncludeSameMembers(accounts);
 
       // TODO: validate the transfers table
     });

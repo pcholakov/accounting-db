@@ -17,7 +17,7 @@ export interface Transfer {
   timestamp?: Timestamp;
 }
 
-interface Account {
+export interface Account {
   id: AccountId;
   user_data?: ExternalId;
   ledger: LedgerId;
@@ -96,6 +96,25 @@ export async function getAccount(
 
   const { pk, sk, ...account } = result.Item;
   return { id: accountId, ...account } as Account;
+}
+
+export async function getAccountsBatch(
+  client: ddc.DynamoDBDocumentClient,
+  tableName: string,
+  accountIds: AccountId[],
+): Promise<Account[] | undefined> {
+  const result = await client.send(
+    new ddc.BatchGetCommand({
+      RequestItems: {
+        [tableName]: { Keys: accountIds.map((id) => ({ pk: `account#${id}`, sk: `account#${id}` })) },
+      },
+    }),
+  );
+
+  return result.Responses?.[tableName].map((item) => {
+    const { pk, sk, ...account } = item;
+    return { id: Number.parseInt(pk.split("#")[1]), ...account } as Account;
+  });
 }
 
 export async function createTransfer(

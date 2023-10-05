@@ -4,7 +4,7 @@ import { Handler } from "aws-lambda";
 import pRetry from "p-retry";
 import { inspect } from "util";
 import { AccountSelectionStrategy, buildRandomTransactions } from "../generators.js";
-import { AbstractBaseTest, LoadTestDriver } from "../load-tests.js";
+import { AbstractBaseTest, LoadTestDriver } from "../load-test-runner.js";
 import { createTransfersBatch } from "../transactions.js";
 
 inspect.defaultOptions.depth = 5;

@@ -1,4 +1,4 @@
-import { AbstractBaseTest, LoadTestDriver, sleep } from "../lib/load-tests.js";
+import { AbstractBaseTest, LoadTestDriver, sleep } from "../lib/load-test-runner.js";
 
 class MockTest extends AbstractBaseTest {
   async teardown() {

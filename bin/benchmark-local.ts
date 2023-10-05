@@ -1,14 +1,13 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
-import { randomInt } from "crypto";
 import { inspect } from "util";
-import { AccountSelectionStrategy, buildRandomTransactions } from "../lib/generators.js";
-import { AbstractBaseTest, LoadTestDriver, Test } from "../lib/load-tests.js";
-import { createTransfersBatch, getAccountsBatch } from "../lib/transactions.js";
+import { AccountSelectionStrategy } from "../lib/generators.js";
+import { LoadTestDriver } from "../lib/load-test-runner.js";
+import { CreateTransfers, ReadBalances } from "../lib/load-tests.js";
 
 inspect.defaultOptions.depth = 5;
 
-const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
+export const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 
 const dynamoDbClient = new dynamodb.DynamoDBClient({
   region: "localhost",
@@ -18,99 +17,9 @@ const dynamoDbClient = new dynamodb.DynamoDBClient({
     secretAccessKey: "k",
   },
 });
-const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
+export const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
-
-class CreateTransfers extends AbstractBaseTest {
-  private readonly transferBatchSize: number;
-  private readonly numAccounts: number;
-  private readonly accountSelectionStrategy;
-  private _globalWriteCounter = 0;
-  private _progressMarker: number | undefined;
-
-  constructor(opts: {
-    transferBatchSize: number;
-    numAccounts: number;
-    accountSelectionStrategy: AccountSelectionStrategy;
-    progressMarker?: number;
-  }) {
-    super();
-    this.transferBatchSize = opts.transferBatchSize;
-    this.numAccounts = opts.numAccounts;
-    this.accountSelectionStrategy = opts.accountSelectionStrategy;
-    this._progressMarker = opts.progressMarker;
-  }
-
-  async request() {
-    const txns = buildRandomTransactions(this.transferBatchSize, this.accountSelectionStrategy, {
-      numAccounts: this.numAccounts,
-    });
-
-    try {
-      await createTransfersBatch(documentClient, TABLE_NAME, txns);
-      if (this._progressMarker) {
-        this._globalWriteCounter += txns.length;
-        if (this._globalWriteCounter % this._progressMarker == 0) {
-          process.stdout.write("+");
-        }
-      }
-    } catch (err) {
-      console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
-      throw err;
-    }
-  }
-
-  requestsPerIteration() {
-    return this.transferBatchSize;
-  }
-
-  config() {
-    return {
-      transferBatchSize: this.transferBatchSize,
-      numAccounts: this.numAccounts,
-      accountSelectionStrategy: this.accountSelectionStrategy,
-    };
-  }
-}
-
-class ReadBalances extends AbstractBaseTest {
-  private readonly numAccounts: number;
-  private readonly readsPerRequest: number;
-  private _globalReadCounter = 0;
-  private _progressMarker: number | undefined;
-
-  constructor(opts: { numAccounts: number; readsPerRequest?: number; progressMarker?: number }) {
-    super();
-    this.numAccounts = opts.numAccounts;
-    this.readsPerRequest = opts.readsPerRequest ?? 1;
-    this._progressMarker = opts.progressMarker;
-  }
-
-  async request() {
-    const accountIds = new Set<number>();
-    while (accountIds.size < this.readsPerRequest) {
-      accountIds.add(randomInt(0, this.numAccounts));
-    }
-    await getAccountsBatch(documentClient, TABLE_NAME, Array.from(accountIds));
-    if (this._progressMarker) {
-      this._globalReadCounter += accountIds.size;
-      if (this._globalReadCounter % this._progressMarker == 0) {
-        process.stdout.write("-");
-      }
-    }
-  }
-
-  requestsPerIteration() {
-    return this.readsPerRequest;
-  }
-
-  config() {
-    return {
-      numAccounts: this.numAccounts,
-    };
-  }
-}
 
 async function createDatabaseTable(opts: { recreateIfExists: boolean }) {
   if (!opts.recreateIfExists) {
@@ -165,6 +74,8 @@ await createDatabaseTable({ recreateIfExists: false });
 const results = [];
 for (let i = 0; i < testSteps; i++) {
   const createTransfersTest = new CreateTransfers({
+    documentClient,
+    tableName: TABLE_NAME,
     numAccounts,
     transferBatchSize: 10,
     accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
@@ -176,7 +87,13 @@ for (let i = 0; i < testSteps; i++) {
     durationSeconds: durationPerTestCycleSeconds,
   });
 
-  const readBalancesTest = new ReadBalances({ numAccounts, readsPerRequest: 100, progressMarker: readRateIncrement });
+  const readBalancesTest = new ReadBalances({
+    documentClient,
+    tableName: TABLE_NAME,
+    numAccounts,
+    readsPerRequest: 100,
+    progressMarker: readRateIncrement,
+  });
   const readDriver = new LoadTestDriver(readBalancesTest, {
     targetRequestRatePerSecond: readRateBase + readRateIncrement * i,
     concurrency: 2,

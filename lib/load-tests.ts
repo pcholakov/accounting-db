@@ -1,5 +1,6 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { randomInt } from "crypto";
+import pRetry from "p-retry";
 import { AccountSelectionStrategy, buildRandomTransactions } from "./generators.js";
 import { AbstractBaseTest } from "./load-test-runner.js";
 import { createTransfersBatch, getAccountsBatch } from "./transactions.js";
@@ -10,6 +11,7 @@ export class CreateTransfers extends AbstractBaseTest {
   private readonly transferBatchSize: number;
   private readonly numAccounts: number;
   private readonly accountSelectionStrategy;
+  private readonly retryStrategy: (fn: () => Promise<void>) => Promise<void>;
   private readonly _progressMarker: number | undefined;
   private _globalWriteCounter = 0;
 
@@ -28,6 +30,24 @@ export class CreateTransfers extends AbstractBaseTest {
     this.numAccounts = opts.numAccounts;
     this.accountSelectionStrategy = opts.accountSelectionStrategy;
     this._progressMarker = opts.progressMarker;
+
+    // Naively retry the entire batch. A better approach may be to split out just
+    // the conflicting items and retry those in a separate transaction. Since we
+    // don't return partial success currently, it doesn't make much difference,
+    // but in a highly contended scenario that would increase the goodput.
+    this.retryStrategy = async (fn: () => Promise<void>) =>
+      pRetry(
+        async () => {
+          await fn();
+        },
+        {
+          retries: 3,
+          minTimeout: 20, // ~half of empirically observed p50 latency for large transactions
+          factor: 1.2,
+          randomize: true, // apply a random 100-200% jitter to retry intervals
+          maxTimeout: 60,
+        },
+      );
   }
 
   async request() {
@@ -36,7 +56,7 @@ export class CreateTransfers extends AbstractBaseTest {
     });
 
     try {
-      await createTransfersBatch(this.documentClient, this.tableName, txns);
+      await createTransfersBatch(this.documentClient, this.tableName, txns, this.retryStrategy);
       if (this._progressMarker) {
         this._globalWriteCounter += txns.length;
         if (this._globalWriteCounter % this._progressMarker == 0) {
@@ -61,6 +81,7 @@ export class CreateTransfers extends AbstractBaseTest {
     };
   }
 }
+
 export class ReadBalances extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
   private readonly tableName: string;

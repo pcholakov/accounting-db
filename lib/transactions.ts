@@ -40,10 +40,12 @@ export interface CreateTranfersResult extends MetadataBearer {
   overallResult: TransferResult;
 }
 
+export interface GetAccountsResult extends MetadataBearer {
+  accounts: Account[] | undefined;
+}
+
 type TransactItems = TransactWriteCommandInput["TransactItems"];
 type ItemType = NonNullable<TransactItems>[number];
-
-type RetryStrategy<T> = (fn: () => Promise<T>) => T;
 
 function noRetry<T>(fn: () => Promise<T>) {
   return fn();
@@ -110,7 +112,7 @@ export async function getAccountsBatch(
   client: ddc.DynamoDBDocumentClient,
   tableName: string,
   accountIds: AccountId[],
-): Promise<Account[] | undefined> {
+): Promise<GetAccountsResult> {
   const result = await client.send(
     new ddc.BatchGetCommand({
       RequestItems: {
@@ -119,10 +121,13 @@ export async function getAccountsBatch(
     }),
   );
 
-  return result.Responses?.[tableName].map((item) => {
-    const { pk, sk, ...account } = item;
-    return { id: Number.parseInt(pk.split("#")[1]), ...account } as Account;
-  });
+  return {
+    accounts: result.Responses?.[tableName].map((item) => {
+      const { pk, sk, ...account } = item;
+      return { id: Number.parseInt(pk.split("#")[1]), ...account } as Account;
+    }),
+    $metadata: result.$metadata,
+  };
 }
 
 export async function createTransfer(

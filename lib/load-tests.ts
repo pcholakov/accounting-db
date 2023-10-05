@@ -72,6 +72,7 @@ export class CreateTransfers extends AbstractBaseTest {
           process.stdout.write("+");
         }
       }
+      // See https://github.com/aws/aws-sdk-js-v3/blob/f1fe216ef15d6b7503755cb3ef8568d00c04b6f8/packages/middleware-retry/src/defaultStrategy.ts#L113-L147
       this._sdk_retryAttempts += (result?.$metadata?.attempts ?? 1) - 1;
       this._sdk_retryDelay += result?.$metadata?.totalRetryDelay ?? 0;
     } catch (err) {
@@ -106,8 +107,10 @@ export class ReadBalances extends AbstractBaseTest {
   private readonly tableName: string;
   private readonly numAccounts: number;
   private readonly batchSize: number;
+  private readonly progressMarker: number | undefined;
   private _globalReadCounter = 0;
-  private _progressMarker: number | undefined;
+  private _sdk_retryDelay = 0;
+  private _sdk_retryAttempts = 0;
 
   constructor(opts: {
     documentClient: ddc.DynamoDBDocumentClient;
@@ -121,7 +124,7 @@ export class ReadBalances extends AbstractBaseTest {
     this.tableName = opts.tableName;
     this.numAccounts = opts.numAccounts;
     this.batchSize = opts.batchSize;
-    this._progressMarker = opts.progressMarker;
+    this.progressMarker = opts.progressMarker;
   }
 
   async request() {
@@ -129,12 +132,21 @@ export class ReadBalances extends AbstractBaseTest {
     while (accountIds.size < this.batchSize) {
       accountIds.add(randomInt(0, this.numAccounts));
     }
-    await getAccountsBatch(this.documentClient, this.tableName, Array.from(accountIds));
-    if (this._progressMarker) {
-      this._globalReadCounter += accountIds.size;
-      if (this._globalReadCounter % this._progressMarker == 0) {
-        process.stdout.write("-");
+    try {
+      const result = await getAccountsBatch(this.documentClient, this.tableName, Array.from(accountIds));
+      if (this.progressMarker) {
+        this._globalReadCounter += accountIds.size;
+        if (this._globalReadCounter % this.progressMarker == 0) {
+          process.stdout.write("-");
+        }
       }
+      // See https://github.com/aws/aws-sdk-js-v3/blob/f1fe216ef15d6b7503755cb3ef8568d00c04b6f8/packages/middleware-retry/src/defaultStrategy.ts#L113-L147
+      this._sdk_retryAttempts += (result?.$metadata?.attempts ?? 1) - 1;
+      this._sdk_retryDelay += result?.$metadata?.totalRetryDelay ?? 0;
+    } catch (err) {
+      this._sdk_retryAttempts += ((err as MetadataBearer)?.$metadata?.attempts ?? 1) - 1;
+      this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
+      throw err;
     }
   }
 
@@ -145,6 +157,10 @@ export class ReadBalances extends AbstractBaseTest {
   config() {
     return {
       numAccounts: this.numAccounts,
+      retries: {
+        sdk_retryAttempts: this._sdk_retryAttempts,
+        sdk_retryDelay: this._sdk_retryDelay,
+      },
     };
   }
 }

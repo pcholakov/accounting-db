@@ -169,8 +169,8 @@ describe("transactions integration test", () => {
         },
       ]);
 
-      const accounts2 = await getAccountsBatch(documentClient, TABLE_NAME, [1, 2, 3]);
-      expect(accounts2).toIncludeSameMembers(accounts);
+      const result2 = await getAccountsBatch(documentClient, TABLE_NAME, [1, 2, 3]);
+      expect(result2.accounts).toIncludeSameMembers(accounts);
 
       // TODO: validate the transfers table
     });

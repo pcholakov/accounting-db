@@ -59,6 +59,10 @@ export class LoadTestDriver {
   }
 
   async run(): Promise<any> {
+    if (this.targetRps == 0) {
+      return;
+    }
+
     await this.test.setup();
 
     const workerIterationLengthMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);

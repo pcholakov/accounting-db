@@ -4,7 +4,7 @@ import { Handler } from "aws-lambda";
 import { inspect } from "util";
 import { AccountSelectionStrategy } from "../generators.js";
 import { LoadTestDriver } from "../load-test-runner.js";
-import { CreateTransfers } from "../load-tests.js";
+import { CreateTransfers, ReadBalances } from "../load-tests.js";
 
 inspect.defaultOptions.depth = 5;
 
@@ -18,30 +18,58 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
 });
 
 export const handler: Handler = async (event, context) => {
-  const concurrency = event.concurrency ?? 4;
-  const arrivalRate = event.arrivalRate ?? 1000;
+  const writeRate = event.writeRate ?? 1000;
+  const writeConcurrency = event.writeConcurrency ?? 4;
+  const writeBatchSize = event.writeBatchSize ?? BATCH_SIZE;
+  const readRate = event.readRate ?? 2000;
+  const readConcurrency = event.readConcurrency ?? 4;
+  const readBatchSize = event.readBatchSize ?? BATCH_SIZE;
   const durationSeconds = event.durationSeconds ?? 60;
-  const batchSize = event.batchSize ?? BATCH_SIZE;
   const numAccounts = event.numAccounts ?? NUMBER_OF_ACCOUNTS;
   const accountSelectionStrategy = event.accountSelectionStrategy ?? AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
 
-  console.log({ message: `Running load test with ${{ concurrency, arrivalRate, duration: durationSeconds }}...` });
-  const loadTest = new LoadTestDriver(
+  console.log({
+    message: `Starting load tests with configuration: ${{
+      concurrency: writeConcurrency,
+      arrivalRate: writeRate,
+      duration: durationSeconds,
+    }}.`,
+  });
+
+  const writeDriver = new LoadTestDriver(
     new CreateTransfers({
       documentClient,
       tableName: TABLE_NAME,
-      batchSize,
+      batchSize: writeBatchSize,
       numAccounts,
       accountSelectionStrategy,
     }),
     {
-      concurrency,
-      targetRequestRatePerSecond: arrivalRate,
+      concurrency: writeConcurrency,
+      targetRequestRatePerSecond: writeRate,
       durationSeconds,
     },
   );
-  const result = await loadTest.run();
-  console.log({ message: "Done." });
-  console.log({ result });
+
+  const readDriver = new LoadTestDriver(
+    new ReadBalances({
+      documentClient,
+      tableName: TABLE_NAME,
+      numAccounts,
+      batchSize: readBatchSize,
+    }),
+    {
+      targetRequestRatePerSecond: readRate,
+      concurrency: readConcurrency,
+      durationSeconds,
+    },
+  );
+
+  const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
+  const result = {
+    write: write.status === "fulfilled" ? write.value : write,
+    read: read.status === "fulfilled" ? read.value : read,
+  };
+  console.log(result);
   return result;
 };

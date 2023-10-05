@@ -73,32 +73,36 @@ await createDatabaseTable({ recreateIfExists: false });
 
 const results = [];
 for (let i = 0; i < testSteps; i++) {
-  const createTransfersTest = new CreateTransfers({
-    documentClient,
-    tableName: TABLE_NAME,
-    numAccounts,
-    batchSize: 10,
-    accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
-    progressMarker: writeRateIncrement,
-  });
-  const writeDriver = new LoadTestDriver(createTransfersTest, {
-    targetRequestRatePerSecond: writeRateBase + writeRateIncrement * i,
-    concurrency: 2,
-    durationSeconds: durationPerTestCycleSeconds,
-  });
+  const writeDriver = new LoadTestDriver(
+    new CreateTransfers({
+      documentClient,
+      tableName: TABLE_NAME,
+      numAccounts,
+      batchSize: 10,
+      accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
+      progressMarker: writeRateIncrement,
+    }),
+    {
+      targetRequestRatePerSecond: writeRateBase + writeRateIncrement * i,
+      concurrency: 2,
+      durationSeconds: durationPerTestCycleSeconds,
+    },
+  );
 
-  const readBalancesTest = new ReadBalances({
-    documentClient,
-    tableName: TABLE_NAME,
-    numAccounts,
-    batchSize: 100,
-    progressMarker: readRateIncrement,
-  });
-  const readDriver = new LoadTestDriver(readBalancesTest, {
-    targetRequestRatePerSecond: readRateBase + readRateIncrement * i,
-    concurrency: 2,
-    durationSeconds: durationPerTestCycleSeconds,
-  });
+  const readDriver = new LoadTestDriver(
+    new ReadBalances({
+      documentClient,
+      tableName: TABLE_NAME,
+      numAccounts,
+      batchSize: 100,
+      progressMarker: readRateIncrement,
+    }),
+    {
+      targetRequestRatePerSecond: readRateBase + readRateIncrement * i,
+      concurrency: 2,
+      durationSeconds: durationPerTestCycleSeconds,
+    },
+  );
 
   const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
   if (write.status === "rejected" || read.status === "rejected") {

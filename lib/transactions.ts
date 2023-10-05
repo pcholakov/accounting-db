@@ -1,5 +1,6 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
+import { MetadataBearer } from "@aws-sdk/types";
 import assert from "assert";
 import { randomUUID } from "crypto";
 
@@ -35,11 +36,18 @@ export enum TransferResult {
   INSUFFICIENT_FUNDS,
 }
 
+export interface CreateTranfersResult extends MetadataBearer {
+  overallResult: TransferResult;
+}
+
 type TransactItems = TransactWriteCommandInput["TransactItems"];
 type ItemType = NonNullable<TransactItems>[number];
 
-type RetryStrategy = (fn: () => Promise<void>) => void;
-const noRetry: RetryStrategy = async (fn) => fn();
+type RetryStrategy<T> = (fn: () => Promise<T>) => T;
+
+function noRetry<T>(fn: () => Promise<T>) {
+  return fn();
+}
 
 export async function createAccount(
   documentClient: ddc.DynamoDBDocumentClient,
@@ -122,15 +130,15 @@ export async function createTransfer(
   tableName: string,
   transfer: Transfer,
 ): Promise<TransferResult> {
-  return createTransfersBatch(documentClient, tableName, [transfer]);
+  return (await createTransfersBatch(documentClient, tableName, [transfer])).overallResult;
 }
 
-export async function createTransfersBatch(
+export async function createTransfersBatch<T>(
   documentClient: ddc.DynamoDBDocumentClient,
   tableName: string,
   batch: Transfer[],
-  retry: RetryStrategy = noRetry,
-): Promise<TransferResult> {
+  retry = noRetry<CreateTranfersResult>,
+): Promise<CreateTranfersResult> {
   // assert(batch.length <= 33);
 
   const items: TransactItems = [];
@@ -204,16 +212,20 @@ export async function createTransfersBatch(
     }
   });
 
-  await retry(async () => {
-    await documentClient.send(
+  const result = await retry(async () => {
+    const result = await documentClient.send(
       new ddc.TransactWriteCommand({
         ClientRequestToken: randomUUID(),
         TransactItems: items,
       }),
     );
+    return {
+      overallResult: TransferResult.OK,
+      $metadata: result?.$metadata,
+    };
   });
 
-  return TransferResult.OK;
+  return result;
 }
 
 type IdType = string;

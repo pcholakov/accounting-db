@@ -134,7 +134,7 @@ describe("transactions integration test", () => {
       ];
 
       const result = await createTransfersBatch(documentClient, TABLE_NAME, transfers);
-      expect(result).toEqual(TransferResult.OK);
+      expect(result.overallResult).toEqual(TransferResult.OK);
 
       const accounts = await Promise.all([
         getAccount(documentClient, TABLE_NAME, 1),

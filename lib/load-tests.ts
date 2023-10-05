@@ -3,7 +3,8 @@ import { randomInt } from "crypto";
 import pRetry from "p-retry";
 import { AccountSelectionStrategy, buildRandomTransactions } from "./generators.js";
 import { AbstractBaseTest } from "./load-test-runner.js";
-import { createTransfersBatch, getAccountsBatch } from "./transactions.js";
+import { CreateTranfersResult, createTransfersBatch, getAccountsBatch } from "./transactions.js";
+import { MetadataBearer } from "@aws-sdk/types";
 
 export class CreateTransfers extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
@@ -11,9 +12,13 @@ export class CreateTransfers extends AbstractBaseTest {
   private readonly transferBatchSize: number;
   private readonly numAccounts: number;
   private readonly accountSelectionStrategy;
-  private readonly retryStrategy: (fn: () => Promise<void>) => Promise<void>;
+  private readonly retryStrategy: (fn: () => Promise<CreateTranfersResult>) => Promise<CreateTranfersResult>;
   private readonly _progressMarker: number | undefined;
   private _globalWriteCounter = 0;
+  private _sdk_retryDelay = 0;
+  private _sdk_retryAttempts = 0;
+  private _conflicts_retryDelay = 0;
+  private _conflicts_retryAttempts = 0;
 
   constructor(opts: {
     documentClient: ddc.DynamoDBDocumentClient;
@@ -35,19 +40,23 @@ export class CreateTransfers extends AbstractBaseTest {
     // the conflicting items and retry those in a separate transaction. Since we
     // don't return partial success currently, it doesn't make much difference,
     // but in a highly contended scenario that would increase the goodput.
-    this.retryStrategy = async (fn: () => Promise<void>) =>
-      pRetry(
-        async () => {
-          await fn();
+    let startTime = 0;
+    this.retryStrategy = async (fn: () => Promise<CreateTranfersResult>) =>
+      pRetry(async () => await fn(), {
+        retries: 3,
+        minTimeout: 20, // ~half of empirically observed p50 latency for large transactions
+        factor: 1.2,
+        randomize: true, // apply a random 100-200% jitter to retry intervals
+        maxTimeout: 60,
+        onFailedAttempt: (error) => {
+          this._conflicts_retryAttempts += 1;
+          if (startTime != 0) {
+            // Only count from the first retry attempt
+            this._conflicts_retryDelay += performance.now() - startTime;
+          }
+          startTime = performance.now();
         },
-        {
-          retries: 3,
-          minTimeout: 20, // ~half of empirically observed p50 latency for large transactions
-          factor: 1.2,
-          randomize: true, // apply a random 100-200% jitter to retry intervals
-          maxTimeout: 60,
-        },
-      );
+      });
   }
 
   async request() {
@@ -56,14 +65,18 @@ export class CreateTransfers extends AbstractBaseTest {
     });
 
     try {
-      await createTransfersBatch(this.documentClient, this.tableName, txns, this.retryStrategy);
+      const result = await createTransfersBatch(this.documentClient, this.tableName, txns, this.retryStrategy);
       if (this._progressMarker) {
         this._globalWriteCounter += txns.length;
         if (this._globalWriteCounter % this._progressMarker == 0) {
           process.stdout.write("+");
         }
       }
+      this._sdk_retryAttempts += (result?.$metadata?.attempts ?? 1) - 1;
+      this._sdk_retryDelay += result?.$metadata?.totalRetryDelay ?? 0;
     } catch (err) {
+      this._sdk_retryAttempts += ((err as MetadataBearer)?.$metadata?.attempts ?? 1) - 1;
+      this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
       console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
       throw err;
     }
@@ -78,6 +91,12 @@ export class CreateTransfers extends AbstractBaseTest {
       transferBatchSize: this.transferBatchSize,
       numAccounts: this.numAccounts,
       accountSelectionStrategy: this.accountSelectionStrategy,
+      retries: {
+        sdk_retryAttempts: this._sdk_retryAttempts,
+        sdk_retryDelay: this._sdk_retryDelay,
+        conflicts_retryAttempts: this._conflicts_retryAttempts,
+        conflicts_retryDelay: this._conflicts_retryDelay,
+      },
     };
   }
 }

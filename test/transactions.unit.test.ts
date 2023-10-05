@@ -2,7 +2,7 @@ import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import "aws-sdk-client-mock-jest";
-import { Transfer, TransferResult, createTransfersBatch } from "../lib/transactions.js";
+import { CreateTranfersResult, Transfer, TransferResult, createTransfersBatch } from "../lib/transactions.js";
 
 const ddbMock = mockClient(ddc.DynamoDBDocumentClient);
 
@@ -45,21 +45,20 @@ describe("transactions", () => {
       const transfers: Transfer[] = [txn1, txn2];
 
       // Can't get p-Retry to work under Jest; trivial retry strategy to verify it is being used
-      const testRetryStrategy = async (fn: () => Promise<void>) => {
+      const testRetryStrategy = async (fn: () => Promise<CreateTranfersResult>) => {
         try {
-          await fn();
+          return await fn();
         } catch (err) {
           // Retry just once on TransactionCanceledException:
           if (err instanceof dynamodb.TransactionCanceledException) {
-            await fn();
+            return await fn();
           }
+          throw err;
         }
       };
 
-      await expect(
-        createTransfersBatch(dynamoDbDocumentClient, TABLE_NAME, transfers, testRetryStrategy),
-      ).resolves.toEqual(TransferResult.OK);
-
+      const result = await createTransfersBatch(dynamoDbDocumentClient, TABLE_NAME, transfers, testRetryStrategy);
+      expect(result.overallResult).toEqual(TransferResult.OK);
       expect(ddbMock).toHaveReceivedCommandTimes(ddc.TransactWriteCommand, 2);
     });
   });

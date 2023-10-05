@@ -4,7 +4,7 @@ import { Handler } from "aws-lambda";
 import { inspect } from "util";
 import { AccountSelectionStrategy } from "../generators.js";
 import { LoadTestDriver } from "../load-test-runner.js";
-import { CreateTransfers, ReadBalances } from "../load-tests.js";
+import { CreateTransfersLoadTest, ReadAccountBalancesLoadTest } from "../load-tests.js";
 
 inspect.defaultOptions.depth = 5;
 
@@ -37,7 +37,7 @@ export const handler: Handler = async (event, context) => {
   });
 
   const writeDriver = new LoadTestDriver(
-    new CreateTransfers({
+    new CreateTransfersLoadTest({
       documentClient,
       tableName: TABLE_NAME,
       batchSize: writeBatchSize,
@@ -52,7 +52,7 @@ export const handler: Handler = async (event, context) => {
   );
 
   const readDriver = new LoadTestDriver(
-    new ReadBalances({
+    new ReadAccountBalancesLoadTest({
       documentClient,
       tableName: TABLE_NAME,
       numAccounts,

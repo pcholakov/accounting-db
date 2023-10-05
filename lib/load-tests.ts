@@ -1,12 +1,12 @@
 import * as ddc from "@aws-sdk/lib-dynamodb";
+import { MetadataBearer } from "@aws-sdk/types";
 import { randomInt } from "crypto";
 import pRetry from "p-retry";
 import { AccountSelectionStrategy, buildRandomTransactions } from "./generators.js";
 import { AbstractBaseTest } from "./load-test-runner.js";
 import { CreateTranfersResult, createTransfersBatch, getAccountsBatch } from "./transactions.js";
-import { MetadataBearer } from "@aws-sdk/types";
 
-export class CreateTransfers extends AbstractBaseTest {
+export class CreateTransfersLoadTest extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
   private readonly tableName: string;
   private readonly transferBatchSize: number;
@@ -102,7 +102,7 @@ export class CreateTransfers extends AbstractBaseTest {
   }
 }
 
-export class ReadBalances extends AbstractBaseTest {
+export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
   private readonly tableName: string;
   private readonly numAccounts: number;

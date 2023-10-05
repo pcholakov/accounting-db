@@ -3,7 +3,7 @@ import * as ddc from "@aws-sdk/lib-dynamodb";
 import { inspect } from "util";
 import { AccountSelectionStrategy } from "../lib/generators.js";
 import { LoadTestDriver } from "../lib/load-test-runner.js";
-import { CreateTransfers, ReadBalances } from "../lib/load-tests.js";
+import { CreateTransfersLoadTest, ReadAccountBalancesLoadTest } from "../lib/load-tests.js";
 
 inspect.defaultOptions.depth = 5;
 
@@ -74,7 +74,7 @@ await createDatabaseTable({ recreateIfExists: false });
 const results = [];
 for (let i = 0; i < testSteps; i++) {
   const writeDriver = new LoadTestDriver(
-    new CreateTransfers({
+    new CreateTransfersLoadTest({
       documentClient,
       tableName: TABLE_NAME,
       numAccounts,
@@ -90,7 +90,7 @@ for (let i = 0; i < testSteps; i++) {
   );
 
   const readDriver = new LoadTestDriver(
-    new ReadBalances({
+    new ReadAccountBalancesLoadTest({
       documentClient,
       tableName: TABLE_NAME,
       numAccounts,

@@ -40,23 +40,34 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     // the conflicting items and retry those in a separate transaction. Since we
     // don't return partial success currently, it doesn't make much difference,
     // but in a highly contended scenario that would increase the goodput.
-    let startTime = 0;
-    this.retryStrategy = async (fn: () => Promise<CreateTranfersResult>) =>
-      pRetry(async () => await fn(), {
-        retries: 3,
-        minTimeout: 20, // ~half of empirically observed p50 latency for large transactions
-        factor: 1.2,
-        randomize: true, // apply a random 100-200% jitter to retry intervals
-        maxTimeout: 60,
-        onFailedAttempt: (error) => {
-          this._conflicts_retryAttempts += 1;
+    this.retryStrategy = async (fn: () => Promise<CreateTranfersResult>) => {
+      // Hack to track the p-Retry backoff time per batch while reusing the
+      // stock calculation. This variable is in the anonymous closure created
+      // for each call to createTransfersBatch, so it's safe to hold some state
+      // specific to the particular batch here.
+      let startTime = 0;
+
+      return pRetry(
+        async () => {
+          // If this is not the very first attempt, record the retry delay
           if (startTime != 0) {
-            // Only count from the first retry attempt
             this._conflicts_retryDelay += performance.now() - startTime;
           }
-          startTime = performance.now();
+          return await fn();
         },
-      });
+        {
+          retries: 3,
+          minTimeout: 20,
+          factor: 1.2,
+          randomize: true,
+          maxTimeout: 60,
+          onFailedAttempt: (error) => {
+            this._conflicts_retryAttempts += 1;
+            startTime = performance.now();
+          },
+        },
+      );
+    };
   }
 
   async request() {

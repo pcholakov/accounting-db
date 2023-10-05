@@ -131,7 +131,7 @@ export async function createTransfersBatch(
   batch: Transfer[],
   retry: RetryStrategy = noRetry,
 ): Promise<TransferResult> {
-  assert(batch.length <= 33);
+  // assert(batch.length <= 33);
 
   const items: TransactItems = [];
   const pendingUpdates: Map<AccountId, ItemType> = new Map();

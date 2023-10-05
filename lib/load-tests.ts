@@ -18,7 +18,7 @@ export class CreateTransfers extends AbstractBaseTest {
   constructor(opts: {
     documentClient: ddc.DynamoDBDocumentClient;
     tableName: string;
-    transferBatchSize: number;
+    batchSize: number;
     numAccounts: number;
     accountSelectionStrategy: AccountSelectionStrategy;
     progressMarker?: number;
@@ -26,7 +26,7 @@ export class CreateTransfers extends AbstractBaseTest {
     super();
     this.documentClient = opts.documentClient;
     this.tableName = opts.tableName;
-    this.transferBatchSize = opts.transferBatchSize;
+    this.transferBatchSize = opts.batchSize;
     this.numAccounts = opts.numAccounts;
     this.accountSelectionStrategy = opts.accountSelectionStrategy;
     this._progressMarker = opts.progressMarker;
@@ -86,7 +86,7 @@ export class ReadBalances extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
   private readonly tableName: string;
   private readonly numAccounts: number;
-  private readonly readsPerRequest: number;
+  private readonly batchSize: number;
   private _globalReadCounter = 0;
   private _progressMarker: number | undefined;
 
@@ -94,20 +94,20 @@ export class ReadBalances extends AbstractBaseTest {
     documentClient: ddc.DynamoDBDocumentClient;
     tableName: string;
     numAccounts: number;
-    readsPerRequest?: number;
+    batchSize: number;
     progressMarker?: number;
   }) {
     super();
     this.documentClient = opts.documentClient;
     this.tableName = opts.tableName;
     this.numAccounts = opts.numAccounts;
-    this.readsPerRequest = opts.readsPerRequest ?? 1;
+    this.batchSize = opts.batchSize;
     this._progressMarker = opts.progressMarker;
   }
 
   async request() {
     const accountIds = new Set<number>();
-    while (accountIds.size < this.readsPerRequest) {
+    while (accountIds.size < this.batchSize) {
       accountIds.add(randomInt(0, this.numAccounts));
     }
     await getAccountsBatch(this.documentClient, this.tableName, Array.from(accountIds));
@@ -120,7 +120,7 @@ export class ReadBalances extends AbstractBaseTest {
   }
 
   requestsPerIteration() {
-    return this.readsPerRequest;
+    return this.batchSize;
   }
 
   config() {

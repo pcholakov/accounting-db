@@ -21,15 +21,18 @@ export const handler: Handler = async (event, context) => {
   const concurrency = event.concurrency ?? 4;
   const arrivalRate = event.arrivalRate ?? 1000;
   const durationSeconds = event.durationSeconds ?? 60;
+  const batchSize = event.batchSize ?? BATCH_SIZE;
+  const numAccounts = event.numAccounts ?? NUMBER_OF_ACCOUNTS;
+  const accountSelectionStrategy = event.accountSelectionStrategy ?? AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
 
   console.log({ message: `Running load test with ${{ concurrency, arrivalRate, duration: durationSeconds }}...` });
   const loadTest = new LoadTestDriver(
     new CreateTransfers({
       documentClient,
       tableName: TABLE_NAME,
-      transferBatchSize: BATCH_SIZE,
-      numAccounts: NUMBER_OF_ACCOUNTS,
-      accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
+      batchSize,
+      numAccounts,
+      accountSelectionStrategy,
     }),
     {
       concurrency,
@@ -38,6 +41,7 @@ export const handler: Handler = async (event, context) => {
     },
   );
   const result = await loadTest.run();
-  console.log({ message: "Done.", result });
+  console.log({ message: "Done." });
+  console.log({ result });
   return result;
 };

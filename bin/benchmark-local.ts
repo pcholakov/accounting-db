@@ -67,7 +67,7 @@ const readRateBase = 1_000;
 const readRateIncrement = 1_000;
 const writeRateBase = 1_00;
 const writeRateIncrement = 1_00;
-const testSteps = 10;
+const testSteps = 1;
 
 await createDatabaseTable({ recreateIfExists: false });
 
@@ -77,7 +77,7 @@ for (let i = 0; i < testSteps; i++) {
     documentClient,
     tableName: TABLE_NAME,
     numAccounts,
-    transferBatchSize: 10,
+    batchSize: 10,
     accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
     progressMarker: writeRateIncrement,
   });
@@ -91,7 +91,7 @@ for (let i = 0; i < testSteps; i++) {
     documentClient,
     tableName: TABLE_NAME,
     numAccounts,
-    readsPerRequest: 100,
+    batchSize: 100,
     progressMarker: readRateIncrement,
   });
   const readDriver = new LoadTestDriver(readBalancesTest, {

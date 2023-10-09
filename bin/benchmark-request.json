@@ -1,0 +1,14 @@
+{
+  "durationSeconds": 5,
+  "numAccounts": 1000000,
+
+  "writeRate": 5000,
+  "writeConcurrency": 10,
+  "writeBatchSize": 20,
+  "accountSelectionStrategy": "RANDOM_PEER_TO_PEER",
+  "hotAccounts": 1,
+
+  "readRate": 0,
+  "readConcurrency": 1,
+  "readBatchSize": 100
+}

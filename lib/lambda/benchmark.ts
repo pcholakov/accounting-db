@@ -17,7 +17,7 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
 
-export const handler: Handler = async (event) => {
+export const handler: Handler = async (event, context) => {
   const writeRate = event.writeRate ?? 1000;
   const writeConcurrency = event.writeConcurrency ?? 4;
   const writeBatchSize = event.writeBatchSize ?? BATCH_SIZE;
@@ -68,8 +68,11 @@ export const handler: Handler = async (event) => {
     },
   );
 
+  const startTime = Date.now();
   const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
   const result = {
+    startTime: new Date(startTime).toISOString(),
+    requestId: context.awsRequestId,
     write: write.status === "fulfilled" ? write.value : write,
     read: read.status === "fulfilled" ? read.value : read,
   };

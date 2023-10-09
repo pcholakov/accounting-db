@@ -5,8 +5,8 @@ import { Transfer } from "./transactions.js";
 const ulid = monotonicFactory();
 
 export enum AccountSelectionStrategy {
-  RANDOM_PEER_TO_PEER,
-  HOT_SPOT_RANDOM_PEERS,
+  RANDOM_PEER_TO_PEER = "RANDOM_PEER_TO_PEER",
+  HOT_SPOT_RANDOM_PEERS = "HOT_SPOT_RANDOM_PEERS",
 }
 
 export function buildRandomTransactions(

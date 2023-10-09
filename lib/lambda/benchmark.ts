@@ -17,7 +17,7 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
 
-export const handler: Handler = async (event, context) => {
+export const handler: Handler = async (event) => {
   const writeRate = event.writeRate ?? 1000;
   const writeConcurrency = event.writeConcurrency ?? 4;
   const writeBatchSize = event.writeBatchSize ?? BATCH_SIZE;
@@ -26,7 +26,9 @@ export const handler: Handler = async (event, context) => {
   const readBatchSize = event.readBatchSize ?? BATCH_SIZE;
   const durationSeconds = event.durationSeconds ?? 60;
   const numAccounts = event.numAccounts ?? NUMBER_OF_ACCOUNTS;
-  const accountSelectionStrategy = event.accountSelectionStrategy ?? AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
+  const hotAccounts = event.hotAccounts ?? undefined;
+  const accountSelectionStrategy =
+    parseAccountSelection(event.accountSelectionStrategy) ?? AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
 
   console.log({
     message: `Starting load tests with configuration: ${{
@@ -42,6 +44,7 @@ export const handler: Handler = async (event, context) => {
       tableName: TABLE_NAME,
       batchSize: writeBatchSize,
       numAccounts,
+      hotAccounts,
       accountSelectionStrategy,
     }),
     {
@@ -73,3 +76,12 @@ export const handler: Handler = async (event, context) => {
   console.log(result);
   return result;
 };
+
+function parseAccountSelection(input: string): AccountSelectionStrategy | undefined {
+  for (const enumKey in AccountSelectionStrategy) {
+    if (enumKey === input) {
+      return enumKey as AccountSelectionStrategy;
+    }
+  }
+  return undefined;
+}

@@ -11,6 +11,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
   private readonly tableName: string;
   private readonly transferBatchSize: number;
   private readonly numAccounts: number;
+  private readonly hotAccounts?: number;
   private readonly accountSelectionStrategy;
   private readonly retryStrategy: (fn: () => Promise<CreateTranfersResult>) => Promise<CreateTranfersResult>;
   private readonly _progressMarker: number | undefined;
@@ -25,6 +26,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     tableName: string;
     batchSize: number;
     numAccounts: number;
+    hotAccounts?: any;
     accountSelectionStrategy: AccountSelectionStrategy;
     progressMarker?: number;
   }) {
@@ -33,6 +35,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     this.tableName = opts.tableName;
     this.transferBatchSize = opts.batchSize;
     this.numAccounts = opts.numAccounts;
+    this.hotAccounts = opts.hotAccounts;
     this.accountSelectionStrategy = opts.accountSelectionStrategy;
     this._progressMarker = opts.progressMarker;
 
@@ -73,6 +76,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
   async request() {
     const txns = buildRandomTransactions(this.transferBatchSize, this.accountSelectionStrategy, {
       numAccounts: this.numAccounts,
+      hotAccounts: this.hotAccounts,
     });
 
     try {
@@ -89,7 +93,11 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     } catch (err) {
       this._sdk_retryAttempts += ((err as MetadataBearer)?.$metadata?.attempts ?? 1) - 1;
       this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
-      console.log({ message: "Transaction batch failed", batch: { _0: txns[0], xs: "..." }, error: err });
+      console.log({
+        message: "Transaction batch failed",
+        batch: { _0: txns[0], xs: "..." },
+        error: err,
+      });
       throw err;
     }
   }

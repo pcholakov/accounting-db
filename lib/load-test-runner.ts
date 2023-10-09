@@ -96,6 +96,9 @@ export class LoadTestDriver {
         try {
           await this.test.request();
         } catch (error) {
+          if (this.failedIterationCount % 1000 == 0) {
+            console.error(`Worker ${id} failed iteration ${this.iterationCount}`, error);
+          }
           this.failedIterationCount += 1;
         }
         const iterationEnd = performance.now();

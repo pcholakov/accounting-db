@@ -58,6 +58,6 @@ export class AccountingDbStack extends cdk.Stack {
         TABLE_NAME: table.tableName,
       },
     });
-    table.grantWriteData(benchmarkTransfers);
+    table.grantReadWriteData(benchmarkTransfers);
   }
 }

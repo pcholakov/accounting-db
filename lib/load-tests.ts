@@ -20,6 +20,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
   private _sdk_retryAttempts = 0;
   private _conflicts_retryDelay = 0;
   private _conflicts_retryAttempts = 0;
+  private _consumedWriteCapacity = 0;
 
   constructor(opts: {
     documentClient: ddc.DynamoDBDocumentClient;
@@ -81,15 +82,20 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
 
     try {
       const result = await createTransfersBatch(this.documentClient, this.tableName, txns, this.retryStrategy);
+      // Count actual committed items rather than txns.length; transfers that
+      // touch the same account within a single transaction will be coalesced by
+      // the transaction logic so it's possible that we wrote fewer than the
+      // batchSize * 3 worth of DynamoDB items in a single write.
+      this._globalWriteCounter += result.itemsWritten;
       if (this._progressMarker) {
-        this._globalWriteCounter += txns.length;
         if (this._globalWriteCounter % this._progressMarker == 0) {
           process.stdout.write("+");
         }
       }
       // See https://github.com/aws/aws-sdk-js-v3/blob/f1fe216ef15d6b7503755cb3ef8568d00c04b6f8/packages/middleware-retry/src/defaultStrategy.ts#L113-L147
-      this._sdk_retryAttempts += (result?.$metadata?.attempts ?? 1) - 1;
-      this._sdk_retryDelay += result?.$metadata?.totalRetryDelay ?? 0;
+      this._sdk_retryAttempts += (result.$metadata?.attempts ?? 1) - 1;
+      this._sdk_retryDelay += result.$metadata?.totalRetryDelay ?? 0;
+      this._consumedWriteCapacity += result.consumedWriteCapacity;
     } catch (err) {
       this._sdk_retryAttempts += ((err as MetadataBearer)?.$metadata?.attempts ?? 1) - 1;
       this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
@@ -108,9 +114,11 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
 
   config() {
     return {
-      transferBatchSize: this.transferBatchSize,
       numAccounts: this.numAccounts,
       accountSelectionStrategy: this.accountSelectionStrategy,
+      batchSize: this.transferBatchSize,
+      itemsWritten: this._globalWriteCounter,
+      consumedWriteCapacity: this._consumedWriteCapacity,
       retries: {
         sdk_retryAttempts: this._sdk_retryAttempts,
         sdk_retryDelay: this._sdk_retryDelay,
@@ -130,6 +138,7 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
   private _globalReadCounter = 0;
   private _sdk_retryDelay = 0;
   private _sdk_retryAttempts = 0;
+  private _consumedReadCapacity = 0;
 
   constructor(opts: {
     documentClient: ddc.DynamoDBDocumentClient;
@@ -153,15 +162,20 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
     }
     try {
       const result = await getAccountsBatch(this.documentClient, this.tableName, Array.from(accountIds));
+      // Only count the actual number of items returned, not the number of
+      // accounts requested (accountIds.size). If accounts weren't pre-created
+      // to cover the id space up to numAccounts, it's very likely that a random
+      // read will return fewer than batchSize items.
+      this._globalReadCounter += result.accounts?.length ?? 0;
       if (this.progressMarker) {
-        this._globalReadCounter += accountIds.size;
         if (this._globalReadCounter % this.progressMarker == 0) {
           process.stdout.write("-");
         }
       }
       // See https://github.com/aws/aws-sdk-js-v3/blob/f1fe216ef15d6b7503755cb3ef8568d00c04b6f8/packages/middleware-retry/src/defaultStrategy.ts#L113-L147
-      this._sdk_retryAttempts += (result?.$metadata?.attempts ?? 1) - 1;
-      this._sdk_retryDelay += result?.$metadata?.totalRetryDelay ?? 0;
+      this._sdk_retryAttempts += (result.$metadata?.attempts ?? 1) - 1;
+      this._sdk_retryDelay += result.$metadata?.totalRetryDelay ?? 0;
+      this._consumedReadCapacity += result.consumedReadCapacity;
     } catch (err) {
       this._sdk_retryAttempts += ((err as MetadataBearer)?.$metadata?.attempts ?? 1) - 1;
       this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
@@ -176,6 +190,9 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
   config() {
     return {
       numAccounts: this.numAccounts,
+      batchSize: this.batchSize,
+      itemsRead: this._globalReadCounter,
+      consumedReadCapacity: this._consumedReadCapacity,
       retries: {
         sdk_retryAttempts: this._sdk_retryAttempts,
         sdk_retryDelay: this._sdk_retryDelay,

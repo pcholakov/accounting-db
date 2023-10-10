@@ -32,16 +32,19 @@ export interface Account {
 }
 
 export enum TransferResult {
-  OK,
-  INSUFFICIENT_FUNDS,
+  OK = "OK",
+  INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS",
 }
 
 export interface CreateTranfersResult extends MetadataBearer {
   overallResult: TransferResult;
+  itemsWritten: number;
+  consumedWriteCapacity: number;
 }
 
 export interface GetAccountsResult extends MetadataBearer {
   accounts: Account[] | undefined;
+  consumedReadCapacity: number;
 }
 
 type TransactItems = TransactWriteCommandInput["TransactItems"];
@@ -118,15 +121,20 @@ export async function getAccountsBatch(
       RequestItems: {
         [tableName]: { Keys: accountIds.map((id) => ({ pk: `account#${id}`, sk: `account#${id}` })) },
       },
+      ReturnConsumedCapacity: "TOTAL",
     }),
   );
-
+  const consumedReadCapacity = (result.ConsumedCapacity ?? []).reduce(
+    (acc, item) => acc + (item.CapacityUnits ?? 0),
+    0,
+  );
   return {
     accounts: result.Responses?.[tableName].map((item) => {
       const { pk, sk, ...account } = item;
       return { id: Number.parseInt(pk.split("#")[1]), ...account } as Account;
     }),
     $metadata: result.$metadata,
+    consumedReadCapacity,
   };
 }
 
@@ -222,10 +230,17 @@ export async function createTransfersBatch<T>(
       new ddc.TransactWriteCommand({
         ClientRequestToken: randomUUID(),
         TransactItems: items,
+        ReturnConsumedCapacity: "TOTAL",
       }),
+    );
+    const consumedWriteCapacity = (result.ConsumedCapacity ?? []).reduce(
+      (acc, item) => acc + (item.CapacityUnits ?? 0),
+      0,
     );
     return {
       overallResult: TransferResult.OK,
+      itemsWritten: items.length,
+      consumedWriteCapacity,
       $metadata: result?.$metadata,
     };
   });

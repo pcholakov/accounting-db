@@ -2,7 +2,7 @@ import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import "aws-sdk-client-mock-jest";
-import { CreateTranfersResult, Transfer, TransferResult, createTransfersBatch } from "../lib/transactions.js";
+import { CreateTransfersResult, Transfer, TransferResult, createTransfersBatch } from "../lib/transactions.js";
 
 const ddbMock = mockClient(ddc.DynamoDBDocumentClient);
 
@@ -45,7 +45,7 @@ describe("transactions", () => {
       const transfers: Transfer[] = [txn1, txn2];
 
       // Can't get p-Retry to work under Jest; trivial retry strategy to verify it is being used
-      const testRetryStrategy = async (fn: () => Promise<CreateTranfersResult>) => {
+      const testRetryStrategy = async (fn: () => Promise<CreateTransfersResult>) => {
         try {
           return await fn();
         } catch (err) {

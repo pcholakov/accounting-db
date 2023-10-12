@@ -36,7 +36,7 @@ export enum TransferResult {
   INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS",
 }
 
-export interface CreateTranfersResult extends MetadataBearer {
+export interface CreateTransfersResult extends MetadataBearer {
   overallResult: TransferResult;
   itemsWritten: number;
   consumedWriteCapacity: number;
@@ -150,10 +150,8 @@ export async function createTransfersBatch<T>(
   documentClient: ddc.DynamoDBDocumentClient,
   tableName: string,
   batch: Transfer[],
-  retry = noRetry<CreateTranfersResult>,
-): Promise<CreateTranfersResult> {
-  // assert(batch.length <= 33);
-
+  retry = noRetry<CreateTransfersResult>,
+): Promise<CreateTransfersResult> {
   const items: TransactItems = [];
   const pendingUpdates: Map<AccountId, ItemType> = new Map();
 
@@ -162,8 +160,14 @@ export async function createTransfersBatch<T>(
       Put: {
         TableName: tableName,
         Item: {
+          // Transfers get partitioned on their unique id which keeps them separate from accounts to maximally distribute the load:
           pk: `transfer#${transfer.id}`,
           sk: `transfer#${transfer.id}`,
+
+          // Alternatively, we could cluster transfers under one of the participating accounts – e.g. alongside the sender:
+          // pk: `account#${transfer.debit_account_id}`,
+          // sk: `account#${transfer.debit_account_id}#transfer#${transfer.id}`,
+
           ...transfer,
         },
         ConditionExpression: "attribute_not_exists(pk)",

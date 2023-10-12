@@ -4,7 +4,7 @@ import { randomInt } from "crypto";
 import pRetry from "p-retry";
 import { AccountSelectionStrategy, buildRandomTransactions } from "./generators.js";
 import { AbstractBaseTest } from "./load-test-runner.js";
-import { CreateTranfersResult, createTransfersBatch, getAccountsBatch } from "./transactions.js";
+import { CreateTransfersResult, createTransfersBatch, getAccountsBatch } from "./transactions.js";
 
 export class CreateTransfersLoadTest extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
@@ -13,7 +13,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
   private readonly numAccounts: number;
   private readonly hotAccounts?: number;
   private readonly accountSelectionStrategy;
-  private readonly retryStrategy: (fn: () => Promise<CreateTranfersResult>) => Promise<CreateTranfersResult>;
+  private readonly retryStrategy: (fn: () => Promise<CreateTransfersResult>) => Promise<CreateTransfersResult>;
   private readonly _progressMarker: number | undefined;
   private _globalWriteCounter = 0;
   private _sdk_retryDelay = 0;
@@ -44,7 +44,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     // the conflicting items and retry those in a separate transaction. Since we
     // don't return partial success currently, it doesn't make much difference,
     // but in a highly contended scenario that would increase the goodput.
-    this.retryStrategy = async (fn: () => Promise<CreateTranfersResult>) => {
+    this.retryStrategy = async (fn: () => Promise<CreateTransfersResult>) => {
       // Hack to track the p-Retry backoff time per batch while reusing the
       // stock calculation. This variable is in the anonymous closure created
       // for each call to createTransfersBatch, so it's safe to hold some state

@@ -26,18 +26,20 @@ export abstract class AbstractBaseTest implements Test {
 }
 
 export class LoadTestDriver {
-  private concurrency: number;
-  private targetRps: number;
-  private test: Test;
-  private overallDurationMs: number;
-  private warmupDurationMs: number;
-  private requestLatencyMicros: RecordableHistogram;
-  private serviceTimeMicros: RecordableHistogram;
+  private readonly concurrency: number;
+  private readonly targetRps: number;
+  private readonly workerCycleTimeMs: number;
+  private readonly test: Test;
+  private readonly overallDurationMs: number;
+  private readonly warmupDurationMs: number;
+  private readonly requestLatencyMicros: RecordableHistogram;
+  private readonly serviceTimeMicros: RecordableHistogram;
   private iterationCount: number = 0;
+  private requestCount: number = 0;
   private errorIterations: number = 0;
   private missedIterations: number = 0;
   private benchmarkDurationMs: number;
-  private requestsPerIteration: number;
+  private readonly requestsPerIteration: number;
   private workerRunTime: number = 0;
   private workerBackoffTime: number = 0;
   private workerBehindScheduleTime: number = 0;
@@ -48,13 +50,13 @@ export class LoadTestDriver {
       concurrency: number;
       targetRequestRatePerSecond: number;
       durationSeconds: number;
-      transactionsPerRequest?: number;
     },
   ) {
     this.concurrency = opts.concurrency;
     this.targetRps = opts.targetRequestRatePerSecond;
     this.overallDurationMs = opts.durationSeconds * 1_000;
-    this.requestsPerIteration = opts.transactionsPerRequest ?? test.requestsPerIteration();
+    this.requestsPerIteration = test.requestsPerIteration();
+    this.workerCycleTimeMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);
     this.warmupDurationMs = Math.min(this.overallDurationMs / 10, 10_000); // 10% of duration or 10s, whichever is smaller
     this.benchmarkDurationMs = this.overallDurationMs - this.warmupDurationMs;
     this.test = test;
@@ -69,53 +71,55 @@ export class LoadTestDriver {
 
     await this.test.setup();
 
-    const workerIterationLengthMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);
     const startTime = performance.now();
     const warmupEndTime = startTime + this.warmupDurationMs;
-    const endTime = startTime + this.overallDurationMs;
+    const endTime = startTime + this.overallDurationMs + this.workerCycleTimeMs; // to account for startup jitter
 
     const workers: Array<Promise<void>> = [];
 
     const concurrentWorkerLoop = async (id: string) => {
       // Jitter startup and perform the warmup iterations without measuring
-      await sleep(Math.random() * workerIterationLengthMs);
-      await this.doWarmup(warmupEndTime, workerIterationLengthMs);
+      await sleep(Math.random() * this.workerCycleTimeMs);
+      await this.doWarmup(warmupEndTime, this.workerCycleTimeMs);
 
       // Measurement loop
       let iterationStart = performance.now();
       do {
+        let error: boolean = false;
         const requestStart = performance.now();
         try {
           await this.test.performIteration();
-        } catch (error) {
+          this.requestCount += this.requestsPerIteration;
+        } catch (err) {
           if (this.errorIterations % 1000 == 0) {
-            console.error(`Worker ${id} failed iteration ${this.iterationCount}`, error);
+            console.error(`Worker ${id} failed iteration ${this.iterationCount}`, err);
           }
+          error = true;
           this.errorIterations += 1;
         }
         const iterationCompleted = performance.now();
         this.iterationCount += 1;
 
         const iterationDurationMillis = iterationCompleted - iterationStart;
+        const serviceTimeMillis = iterationCompleted - requestStart;
         this.recordDuration(this.requestLatencyMicros, Math.round(iterationDurationMillis * 1000));
-        this.recordDuration(this.serviceTimeMicros, Math.round((iterationCompleted - requestStart) * 1000));
+        this.recordDuration(this.serviceTimeMicros, Math.round(serviceTimeMillis * 1000));
+        this.workerRunTime += serviceTimeMillis;
 
-        this.workerRunTime += iterationDurationMillis;
-
-        const nextIterationStartMillis = iterationStart + workerIterationLengthMs;
+        const nextIterationStartMillis = iterationStart + this.workerCycleTimeMs;
         const backoffTimeMillis = nextIterationStartMillis - performance.now();
         if (backoffTimeMillis > 0) {
           this.workerBackoffTime += backoffTimeMillis;
           await sleep(backoffTimeMillis);
+          iterationStart = nextIterationStartMillis;
         } else {
           this.workerBehindScheduleTime += -backoffTimeMillis;
-          if (-backoffTimeMillis > workerIterationLengthMs) {
-            // If we're more than 1 full cycle behind schedule, record the appropriate number of skipped iterations due to backpressure
-            this.missedIterations += Math.floor(-backoffTimeMillis / workerIterationLengthMs);
+          if (-backoffTimeMillis > this.workerCycleTimeMs) {
+            // If we're more than 1 full iteration behind schedule, record the number of skipped iterations due to backpressure
+            this.missedIterations += Math.floor(-backoffTimeMillis / this.workerCycleTimeMs);
+            iterationStart = iterationCompleted; // begin the next iteration immediately after the last request completed
           }
         }
-
-        iterationStart = nextIterationStartMillis;
       } while (iterationStart < endTime);
     };
 
@@ -156,7 +160,6 @@ export class LoadTestDriver {
   async stop(): Promise<any> {
     await this.test.teardown();
 
-    const totalRequestCount = this.iterationCount * this.requestsPerIteration;
     return {
       configuration: {
         targetArrivalRate: this.targetRps,
@@ -166,15 +169,15 @@ export class LoadTestDriver {
       },
       testRunData: this.test.testRunData(),
       iterations: this.iterationCount,
-      requests: totalRequestCount,
+      requests: this.requestCount,
       errorIterations: this.errorIterations,
       missedIterations: this.missedIterations,
       failedIterationsRatio:
         (this.errorIterations + this.missedIterations) / (this.iterationCount + this.missedIterations),
-      iterationsPerSecondOverall: (this.iterationCount * 1_000) / this.benchmarkDurationMs,
       iterationsPerSecondPerWorker: (this.iterationCount * 1_000) / this.concurrency / this.benchmarkDurationMs,
-      requestsPerSecondOverall: (totalRequestCount * 1_000) / this.benchmarkDurationMs,
-      targetArrivalRateRatio: (totalRequestCount * 1_000) / this.benchmarkDurationMs / this.targetRps,
+      workerCycleTimeMillis: this.workerCycleTimeMs,
+      requestsPerSecondOverall: (this.requestCount * 1_000) / this.benchmarkDurationMs,
+      targetArrivalRateRatio: (this.requestCount * 1_000) / this.benchmarkDurationMs / this.targetRps,
       requestLatencyStatsMillis: {
         avg: this.requestLatencyMicros.mean / 1_000,
         p0: this.requestLatencyMicros.min / 1_000,

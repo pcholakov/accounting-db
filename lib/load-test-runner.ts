@@ -6,21 +6,21 @@ export interface Test {
   /// Drive requests to the system under test. If you perform more than one unit
   /// of work, override `requestsPerIteration` to return the number of units of
   /// work performed.
-  request(): Promise<void>;
+  performIteration(): Promise<void>;
   /// Number of work items performed per iteration. Defaults to 1.
   requestsPerIteration(): number;
   /// Return additional configuration information to be included in the results.
-  config(): any;
+  testRunData(): any;
 }
 
 export abstract class AbstractBaseTest implements Test {
   async setup(): Promise<void> {}
   async teardown(): Promise<void> {}
-  abstract request(): Promise<void>;
+  abstract performIteration(): Promise<void>;
   requestsPerIteration() {
     return 1;
   }
-  config(): object {
+  testRunData(): object {
     return {};
   }
 }
@@ -33,11 +33,13 @@ export class LoadTestDriver {
   private warmupDurationMs: number;
   private durationMicros: RecordableHistogram;
   private iterationCount: number = 0;
-  private failedIterationCount: number = 0;
+  private errorCount: number = 0;
+  private missedIterationCount: number = 0;
   private benchmarkDurationMs: number;
   private requestsPerIteration: number;
   private workerRunTime: number = 0;
   private workerBackoffTime: number = 0;
+  private workerBehindScheduleTime: number = 0;
 
   constructor(
     test: Test,
@@ -67,7 +69,7 @@ export class LoadTestDriver {
 
     const workerIterationLengthMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);
     const startTime = performance.now();
-    const warmupEndime = startTime + this.warmupDurationMs;
+    const warmupEndTime = startTime + this.warmupDurationMs;
     const endTime = startTime + this.overallDurationMs;
 
     const workers: Array<Promise<void>> = [];
@@ -76,10 +78,10 @@ export class LoadTestDriver {
       await sleep(Math.random() * workerIterationLengthMs); // startup jitter
 
       // Warmup - run work loop without measuring
-      while (performance.now() < warmupEndime) {
+      while (performance.now() < warmupEndTime) {
         const iterationStart = performance.now();
         try {
-          await this.test.request();
+          await this.test.performIteration();
         } catch (error) {
           // ignore errors during warmup
         }
@@ -91,35 +93,47 @@ export class LoadTestDriver {
       }
 
       // Measurement loop
+      let iterationStart = performance.now();
       do {
-        const iterationStart = performance.now();
         try {
-          await this.test.request();
+          await this.test.performIteration();
         } catch (error) {
-          if (this.failedIterationCount % 1000 == 0) {
+          if (this.errorCount % 1000 == 0) {
             console.error(`Worker ${id} failed iteration ${this.iterationCount}`, error);
           }
-          this.failedIterationCount += 1;
+          this.errorCount += 1;
         }
         const iterationEnd = performance.now();
         this.iterationCount += 1;
 
         const iterationDurationMillis = iterationEnd - iterationStart;
         {
-          // Record durations in the histogram in microseconds as it doesn't accept zero values.
-          // TODO: report dropped zero-length durations
-          const iterationDurationMicros = Math.floor(iterationDurationMillis * 1_000);
+          const iterationDurationMicros = Math.round(iterationDurationMillis * 1_000);
           if (iterationDurationMicros > 0) {
-            this.durationMicros.record(iterationDurationMicros);
+            this.durationMicros.record(iterationDurationMicros); // Doesn't accept 0 values
+          } else {
+            // Record (highly unlikely) sub-microsecond durations as 1us – this
+            // is fine since we're reporting the final results in milliseconds.
+            this.durationMicros.record(1);
           }
         }
 
         this.workerRunTime += iterationDurationMillis;
-        if (iterationDurationMillis < workerIterationLengthMs) {
-          const backoffTimeMillis = workerIterationLengthMs - iterationDurationMillis;
+
+        const nextIterationStartMillis = iterationStart + workerIterationLengthMs;
+        const backoffTimeMillis = nextIterationStartMillis - performance.now();
+        if (backoffTimeMillis > 0) {
           this.workerBackoffTime += backoffTimeMillis;
-          if (backoffTimeMillis > 0) await sleep(backoffTimeMillis);
+          await sleep(backoffTimeMillis);
+        } else {
+          this.workerBehindScheduleTime += -backoffTimeMillis;
+          if (-backoffTimeMillis > workerIterationLengthMs) {
+            // If we're more than 1 full cycle behind schedule, record the appropriate number of skipped iterations due to backpressure
+            this.missedIterationCount += Math.floor(-backoffTimeMillis / workerIterationLengthMs);
+          }
         }
+
+        iterationStart = nextIterationStartMillis;
       } while (performance.now() < endTime);
     };
 
@@ -141,13 +155,15 @@ export class LoadTestDriver {
         concurrency: this.concurrency,
         duration: this.overallDurationMs,
         warmup: this.warmupDurationMs,
-        test: this.test.config(),
       },
+      testRunData: this.test.testRunData(),
       requests: totalRequestCount,
       iterations: this.iterationCount,
       requestsPerIteration: this.requestsPerIteration,
-      failedIterations: this.failedIterationCount,
-      errorRatio: this.failedIterationCount / this.iterationCount,
+      errorCount: this.errorCount,
+      missedIterationCount: this.missedIterationCount,
+      failedIterationsRatio:
+        (this.errorCount + this.missedIterationCount) / (this.iterationCount + this.missedIterationCount),
       iterationsPerSecondOverall: (this.iterationCount * 1_000) / this.benchmarkDurationMs,
       iterationsPerSecondPerWorker: (this.iterationCount * 1_000) / this.concurrency / this.benchmarkDurationMs,
       requestsPerSecondOverall: (totalRequestCount * 1_000) / this.benchmarkDurationMs,
@@ -167,6 +183,7 @@ export class LoadTestDriver {
       workerUtilization: {
         runTimeMillis: this.workerRunTime,
         backoffTimeMillis: this.workerBackoffTime,
+        behindScheduleTimeMillis: this.workerBehindScheduleTime,
         utilization: this.workerRunTime / (this.workerRunTime + this.workerBackoffTime),
       },
     };

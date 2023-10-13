@@ -74,7 +74,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     };
   }
 
-  async request() {
+  async performIteration() {
     const txns = buildRandomTransactions(this.transferBatchSize, this.accountSelectionStrategy, {
       numAccounts: this.numAccounts,
       hotAccounts: this.hotAccounts,
@@ -112,7 +112,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     return this.transferBatchSize;
   }
 
-  config() {
+  testRunData() {
     return {
       numAccounts: this.numAccounts,
       accountSelectionStrategy: this.accountSelectionStrategy,
@@ -155,7 +155,7 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
     this.progressMarker = opts.progressMarker;
   }
 
-  async request() {
+  async performIteration() {
     const accountIds = new Set<number>();
     while (accountIds.size < this.batchSize) {
       accountIds.add(randomInt(0, this.numAccounts));
@@ -187,7 +187,7 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
     return this.batchSize;
   }
 
-  config() {
+  testRunData() {
     return {
       numAccounts: this.numAccounts,
       batchSize: this.batchSize,

@@ -5,7 +5,7 @@ class MockTest extends AbstractBaseTest {
     process.stdout.write("\n");
   }
 
-  async request() {
+  async performIteration() {
     await sleep(10);
     process.stdout.write(".");
   }

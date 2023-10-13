@@ -44,7 +44,7 @@ export function buildRandomTransactions(
     transfers.push({
       id: ulid(),
       ledger: 700,
-      amount: 1 + randomInt(0, opts.numAccounts),
+      amount: randomInt(0, 10_000),
       debit_account_id: fromAccount,
       credit_account_id: toAccount,
       code: 0,

@@ -34,6 +34,7 @@ export class LoadTestDriver {
   private readonly warmupDurationMs: number;
   private readonly requestLatencyMicros: RecordableHistogram;
   private readonly serviceTimeMicros: RecordableHistogram;
+  private readonly timeoutValueMs: number;
   private iterationCount: number = 0;
   private requestCount: number = 0;
   private errorIterations: number = 0;
@@ -50,6 +51,11 @@ export class LoadTestDriver {
       concurrency: number;
       targetRequestRatePerSecond: number;
       durationSeconds: number;
+      /**
+       * The request latency value to record for missed iterations, in milliseconds.
+       */
+      timeoutValueMs?: number;
+      skipWarmup?: boolean;
     },
   ) {
     this.concurrency = opts.concurrency;
@@ -57,7 +63,8 @@ export class LoadTestDriver {
     this.overallDurationMs = opts.durationSeconds * 1_000;
     this.requestsPerIteration = test.requestsPerIteration();
     this.workerCycleTimeMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);
-    this.warmupDurationMs = Math.min(this.overallDurationMs / 10, 10_000); // 10% of duration or 10s, whichever is smaller
+    this.warmupDurationMs = opts.skipWarmup ?? false ? 0 : Math.min(this.overallDurationMs / 10, 10_000); // 10% of duration or 10s, whichever is smaller
+    this.timeoutValueMs = opts.timeoutValueMs ?? this.workerCycleTimeMs; // default to the worker cycle time; it's the fastest we could reasonably react to a missed request
     this.benchmarkDurationMs = this.overallDurationMs - this.warmupDurationMs;
     this.test = test;
     this.requestLatencyMicros = createHistogram();
@@ -113,10 +120,32 @@ export class LoadTestDriver {
           await sleep(backoffTimeMillis);
           iterationStart = nextIterationStartMillis;
         } else {
+          // TODO: behave better for sub-millisecond backoff times
+
           this.workerBehindScheduleTime += -backoffTimeMillis;
           if (-backoffTimeMillis > this.workerCycleTimeMs) {
-            // If we're more than 1 full iteration behind schedule, record the number of skipped iterations due to backpressure
-            this.missedIterations += Math.floor(-backoffTimeMillis / this.workerCycleTimeMs);
+            // Record missing iterations' latencies - we're pretending that the requests were sent and failed, see https://www.scylladb.com/2021/04/22/on-coordinated-omission/
+            for (
+              let missingValueMs = iterationDurationMillis - this.workerCycleTimeMs;
+              missingValueMs >= this.workerCycleTimeMs;
+              missingValueMs -= this.workerCycleTimeMs
+            ) {
+              // Choose how to track request latency for missed iterations (if at all); from least to most pessimistic.
+
+              // Mode 1: immediately fail requests that are behind schedule
+              // this.recordDuration(this.requestLatencyMicros, Math.round(missingValueMs * 1000));
+
+              // Mode 2: record the configured timeout value for any missed iterations
+              this.recordDuration(this.requestLatencyMicros, Math.round(this.timeoutValueMs * 1000));
+
+              // Mode 3: pretend the missing requests are waiting in the queue since their intended start time, and fail at the end of the test overall
+              // this.recordDuration(
+              //   this.requestLatencyMicros,
+              //   Math.round((endTime - iterationStart + missingValueMs) * 1000), // TODO: calculate queued time based on a fixed arrival rate
+              // );
+
+              this.missedIterations += 1;
+            }
             iterationStart = iterationCompleted; // begin the next iteration immediately after the last request completed
           }
         }

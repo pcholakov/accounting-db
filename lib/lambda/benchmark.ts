@@ -1,5 +1,6 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { Handler } from "aws-lambda";
 import { inspect } from "util";
 import { AccountSelectionStrategy } from "../generators.js";
@@ -12,7 +13,14 @@ const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 const NUMBER_OF_ACCOUNTS = Number.parseInt(process.env["NUMBER_OF_ACCOUNTS"] ?? `${1_000_000}`);
 const BATCH_SIZE = Number.parseInt(process.env["BATCH_SIZE"] ?? "33");
 
-const dynamoDbClient = new dynamodb.DynamoDBClient();
+const requestTimeoutMs = 100;
+const dynamoDbClient = new dynamodb.DynamoDBClient({
+  requestHandler: new NodeHttpHandler({
+    connectionTimeout: requestTimeoutMs,
+    requestTimeout: requestTimeoutMs,
+  }),
+  maxAttempts: 2,
+});
 const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
@@ -51,6 +59,7 @@ export const handler: Handler = async (event, context) => {
       concurrency: writeConcurrency,
       targetRequestRatePerSecond: writeRate,
       durationSeconds,
+      timeoutValueMs: requestTimeoutMs,
     },
   );
 
@@ -65,6 +74,7 @@ export const handler: Handler = async (event, context) => {
       targetRequestRatePerSecond: readRate,
       concurrency: readConcurrency,
       durationSeconds,
+      timeoutValueMs: requestTimeoutMs,
     },
   );
 

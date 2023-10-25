@@ -28,19 +28,25 @@ const txn2 = { ...txnCommon, id: "2", debit_account_id: 3, credit_account_id: 4,
 describe("transactions", () => {
   describe("conflicting items within a batch get retried as individual writes", () => {
     test("create transfers batch", async () => {
-      ddbMock.on(ddc.TransactWriteCommand).rejectsOnce(
-        new dynamodb.TransactionCanceledException({
+      ddbMock
+        .on(ddc.TransactWriteCommand)
+        .rejectsOnce(
+          new dynamodb.TransactionCanceledException({
+            $metadata: {},
+            message: "Transaction cancelled, please refer cancellation reasons for specific reasons",
+            CancellationReasons: [
+              { Code: "None" },
+              {
+                Code: "TransactionConflict",
+                Message: "Transaction is ongoing for the item",
+              },
+            ],
+          }),
+        )
+        .resolves({
           $metadata: {},
-          message: "Transaction cancelled, please refer cancellation reasons for specific reasons",
-          CancellationReasons: [
-            { Code: "None" },
-            {
-              Code: "TransactionConflict",
-              Message: "Transaction is ongoing for the item",
-            },
-          ],
-        }),
-      );
+          ConsumedCapacity: [],
+        });
 
       const transfers: Transfer[] = [txn1, txn2];
 

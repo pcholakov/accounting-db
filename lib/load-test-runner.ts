@@ -36,6 +36,8 @@ export class LoadTestDriver {
   private readonly serviceTimeMicros: RecordableHistogram;
   private readonly timeoutValueMs: number;
   private iterationCount: number = 0;
+  private scheduleIterationCount: number = 0;
+  private workQueue: number[] = [];
   private requestCount: number = 0;
   private errorIterations: number = 0;
   private missedIterations: number = 0;
@@ -79,8 +81,8 @@ export class LoadTestDriver {
     await this.test.setup();
 
     const startTime = performance.now();
-    const warmupEndTime = startTime + this.warmupDurationMs;
-    const endTime = startTime + this.overallDurationMs + this.workerCycleTimeMs; // to account for startup jitter
+    const measurementStartTime = startTime + this.warmupDurationMs;
+    const endTime = startTime + this.overallDurationMs;
 
     const workers: Array<Promise<void>> = [];
 
@@ -92,28 +94,80 @@ export class LoadTestDriver {
             (this.warmupDurationMs > 2 * this.workerCycleTimeMs ? this.warmupDurationMs / 2 : this.workerCycleTimeMs),
         ),
       );
-      await this.doWarmup(warmupEndTime, this.workerCycleTimeMs);
+      await this.doWarmup(measurementStartTime, this.workerCycleTimeMs);
 
-      // Measurement loop
-      let iterationStart = performance.now();
+      const workStartTime = performance.now();
+      const workArrivalSchedule = setInterval(() => {
+        let nextRequestTime = workStartTime + this.scheduleIterationCount * this.workerCycleTimeMs;
+        while (this.workQueue.length < 100) {
+          this.scheduleIterationCount += 1;
+          this.workQueue.push(nextRequestTime);
+          nextRequestTime += this.workerCycleTimeMs;
+        }
+      }, this.workerCycleTimeMs);
+
       do {
-        let error: boolean = false;
+        while (this.workQueue.length == 0) {
+          await sleep(0); // yield to the control loop
+        }
+        const workerLoopStart = performance.now();
+
+        // If we're finished, drain the remaining requests from the queue and record their latencies (if applicable)
+        if (workerLoopStart > endTime) {
+          this.workQueue.forEach((arrivalTime) => {
+            if (arrivalTime < endTime - this.workerCycleTimeMs) {
+              this.missedIterations += 1;
+              this.recordDuration(
+                this.requestLatencyMicros,
+                Math.round(Math.max(workerLoopStart - arrivalTime, this.timeoutValueMs) * 1000),
+              );
+            } else {
+              this.scheduleIterationCount -= 1;
+            }
+          });
+          break;
+        }
+
+        let arrivalTime = this.workQueue.shift();
+        // skip over any "timed out in queue" requests
+        while (arrivalTime !== undefined && workerLoopStart - arrivalTime > this.timeoutValueMs) {
+          this.missedIterations += 1;
+          this.recordDuration(
+            this.requestLatencyMicros,
+            Math.round(Math.max(workerLoopStart - arrivalTime, this.timeoutValueMs) * 1000),
+          );
+          arrivalTime = this.workQueue.shift();
+        }
+
+        if (arrivalTime === undefined) continue; // Only timed out requests in the queue, no real work left to do
+        const iterationStart = arrivalTime; // Treat the intended request start time as the start of the measurement iteration
+
+        const backoffTimeMillis = arrivalTime - workerLoopStart;
+        // Are we ahead of schedule?
+        if (backoffTimeMillis > 0) {
+          this.workerBackoffTime += backoffTimeMillis;
+          if (backoffTimeMillis >= 1.0) {
+            await sleep(Math.floor(backoffTimeMillis));
+          }
+          while (performance.now() < arrivalTime) {
+            await sleep(0);
+          }
+        } else {
+          this.workerBehindScheduleTime += -backoffTimeMillis;
+        }
+
         const requestStart = performance.now();
         try {
           await this.test.performIteration();
         } catch (err) {
-          if (this.errorIterations % 1000 == 0) {
-            console.error(`Worker ${id} failed iteration ${this.iterationCount}`, err);
-          }
-          error = true;
+          // Log a sample of error messages to aid in debugging user test code
+          // if (this.errorIterations % 1000 == 0) {
+          //   console.error(`Worker ${id} failed iteration ${this.iterationCount}`, err);
+          // }
           this.errorIterations += 1;
         }
 
         const iterationCompleted = performance.now();
-        if (iterationCompleted > endTime) {
-          break;
-        }
-
         const iterationDurationMillis = iterationCompleted - iterationStart;
         const serviceTimeMillis = iterationCompleted - requestStart;
         this.recordDuration(this.requestLatencyMicros, Math.round(iterationDurationMillis * 1000));
@@ -121,51 +175,9 @@ export class LoadTestDriver {
         this.iterationCount += 1;
         this.requestCount += this.requestsPerIteration;
         this.workerRunTime += serviceTimeMillis;
-
-        const nextIterationStartMillis = iterationStart + this.workerCycleTimeMs;
-        const backoffTimeMillis = Math.round(nextIterationStartMillis - performance.now());
-        if (backoffTimeMillis > 0) {
-          this.workerBackoffTime += backoffTimeMillis;
-          if (backoffTimeMillis >= 1.0) {
-            await sleep(backoffTimeMillis);
-          }
-          while (performance.now() < nextIterationStartMillis) {
-            /* busy-wait if less than 1ms */
-          }
-          iterationStart = nextIterationStartMillis;
-        } else if (backoffTimeMillis == 0) {
-          iterationStart = nextIterationStartMillis;
-        } else {
-          this.workerBehindScheduleTime += -backoffTimeMillis;
-          if (-backoffTimeMillis > this.workerCycleTimeMs) {
-            // Record request latency for missed iterations. We're pretending that the requests were enqueued but failed. See: https://www.scylladb.com/2021/04/22/on-coordinated-omission/
-
-            // Mode 1: record a timeout for every missed iteration; this simulates a bounded queue with a fixed timeout
-            for (
-              let missingValueMs = iterationDurationMillis - this.workerCycleTimeMs;
-              missingValueMs > this.workerCycleTimeMs;
-              missingValueMs -= this.workerCycleTimeMs
-            ) {
-              this.recordDuration(
-                this.requestLatencyMicros,
-                missingValueMs > this.timeoutValueMs
-                  ? Math.round(this.timeoutValueMs * 1000)
-                  : Math.round(missingValueMs * 1000),
-              );
-              this.missedIterations += 1;
-            }
-
-            // Mode 2: pretend the requests have been waiting in the queue since their intended start time; simulates FIFO processing with an unbounded queue depth
-            // const requestLatencyMicros =
-            //   Math.round(iterationCompleted - (warmupEndTime + this.iterationCount * this.workerCycleTimeMs)) * 1000;
-            // this.recordDuration(this.requestLatencyMicros, requestLatencyMicros);
-            // const missedIterations = Math.ceil((iterationCompleted - iterationStart) / this.workerCycleTimeMs) - 1;
-            // this.missedIterations += missedIterations;
-
-            iterationStart = iterationCompleted; // begin the next iteration immediately after the last request completed
-          }
-        }
       } while (true);
+
+      clearInterval(workArrivalSchedule);
     };
 
     for (let i = 0; i < this.concurrency; i++) {
@@ -191,7 +203,7 @@ export class LoadTestDriver {
       const iterationStart = performance.now();
       try {
         await this.test.performIteration();
-      } catch (error) {
+      } catch (err) {
         // ignore errors during warmup
       }
       const iterationEnd = performance.now();
@@ -213,15 +225,16 @@ export class LoadTestDriver {
         warmup: this.warmupDurationMs,
       },
       testRunData: this.test.testRunData(),
-      iterations: this.iterationCount,
-      requests: this.requestCount,
-      errorIterations: this.errorIterations,
+      targetIterations: this.scheduleIterationCount,
+      completedIterations: this.iterationCount,
       missedIterations: this.missedIterations,
+      errorIterations: this.errorIterations,
       failedIterationsRatio:
         (this.errorIterations + this.missedIterations) / (this.iterationCount + this.missedIterations),
-      iterationsPerSecondPerWorker: (this.iterationCount * 1_000) / this.concurrency / this.benchmarkDurationMs,
       workerCycleTimeMillis: this.workerCycleTimeMs,
+      totalRequestsCompleted: this.requestCount,
       throughputOverall: (this.requestCount * 1_000) / this.benchmarkDurationMs,
+      iterationsPerSecondPerWorker: (this.iterationCount * 1_000) / this.concurrency / this.benchmarkDurationMs,
       targetArrivalRateRatio: (this.requestCount * 1_000) / this.benchmarkDurationMs / this.targetRps,
       requestLatencyStatsMillis: {
         avg: this.requestLatencyMicros.mean / 1_000,

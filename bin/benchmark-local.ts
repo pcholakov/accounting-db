@@ -1,9 +1,30 @@
 import * as dynamodb from "@aws-sdk/client-dynamodb";
 import * as ddc from "@aws-sdk/lib-dynamodb";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { inspect } from "util";
 import { AccountSelectionStrategy } from "../lib/generators.js";
 import { LoadTestDriver } from "../lib/load-test-runner.js";
 import { CreateTransfersLoadTest, ReadAccountBalancesLoadTest } from "../lib/load-tests.js";
+
+// Load test parameters
+
+const durationPerTestCycleSeconds = 30;
+const numAccounts = 1_000_000;
+const hotAccounts = 1_000;
+
+const readRate = 0;
+const readConcurrency = 1;
+const readBatchSize = 10;
+
+const writeRate = 500;
+const writeConcurrency = 1;
+const writeBatchSize = 10;
+const writeAccountSelectionStrategy = AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
+
+const requestTimeoutMs = 100;
+const dynamoDbClientTimeoutMs = 500;
+
+// No more configuration below this line
 
 inspect.defaultOptions.depth = 5;
 
@@ -12,6 +33,11 @@ export const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 const dynamoDbClient = new dynamodb.DynamoDBClient({
   region: "localhost",
   endpoint: "http://localhost:8000",
+  requestHandler: new NodeHttpHandler({
+    connectionTimeout: dynamoDbClientTimeoutMs,
+    requestTimeout: dynamoDbClientTimeoutMs,
+  }),
+  maxAttempts: 2,
   credentials: {
     accessKeyId: "a",
     secretAccessKey: "k",
@@ -61,55 +87,52 @@ async function createDatabaseTable(opts: { recreateIfExists: boolean }) {
   console.log("Created empty table.");
 }
 
-const durationPerTestCycleSeconds = 5;
-const numAccounts = 10_000;
-const readRateBase = 1_000;
-const readRateIncrement = 1_000;
-const writeRateBase = 1_00;
-const writeRateIncrement = 1_00;
-const testSteps = 1;
-
 await createDatabaseTable({ recreateIfExists: false });
 
 const results = [];
-for (let i = 0; i < testSteps; i++) {
-  const writeDriver = new LoadTestDriver(
-    new CreateTransfersLoadTest({
-      documentClient,
-      tableName: TABLE_NAME,
-      numAccounts,
-      batchSize: 10,
-      accountSelectionStrategy: AccountSelectionStrategy.RANDOM_PEER_TO_PEER,
-      progressMarker: writeRateIncrement,
-    }),
-    {
-      targetRequestRatePerSecond: writeRateBase + writeRateIncrement * i,
-      concurrency: 2,
-      durationSeconds: durationPerTestCycleSeconds,
-    },
-  );
 
-  const readDriver = new LoadTestDriver(
-    new ReadAccountBalancesLoadTest({
-      documentClient,
-      tableName: TABLE_NAME,
-      numAccounts,
-      batchSize: 100,
-      progressMarker: readRateIncrement,
-    }),
-    {
-      targetRequestRatePerSecond: readRateBase + readRateIncrement * i,
-      concurrency: 2,
-      durationSeconds: durationPerTestCycleSeconds,
-    },
-  );
+const writeDriver = new LoadTestDriver(
+  new CreateTransfersLoadTest({
+    documentClient,
+    tableName: TABLE_NAME,
+    numAccounts,
+    hotAccounts,
+    batchSize: writeBatchSize,
+    accountSelectionStrategy: writeAccountSelectionStrategy,
+    progressMarker: 1_000,
+  }),
+  {
+    targetRequestRatePerSecond: writeRate,
+    concurrency: writeConcurrency,
+    durationSeconds: durationPerTestCycleSeconds,
+    timeoutValueMs: requestTimeoutMs,
+    skipWarmup: false,
+  },
+);
 
-  const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
-  if (write.status === "rejected" || read.status === "rejected") {
-    throw new Error("Aborted run: " + { write, read });
-  }
-  results.push({ write: write.value, read: read.value });
-  process.stdout.write("\n");
+const readDriver = new LoadTestDriver(
+  new ReadAccountBalancesLoadTest({
+    documentClient,
+    tableName: TABLE_NAME,
+    numAccounts,
+    batchSize: readBatchSize,
+    progressMarker: 1_000,
+  }),
+  {
+    targetRequestRatePerSecond: readRate,
+    concurrency: readConcurrency,
+    durationSeconds: durationPerTestCycleSeconds,
+    timeoutValueMs: requestTimeoutMs,
+    skipWarmup: false,
+  },
+);
+
+const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
+if (write.status === "rejected" || read.status === "rejected") {
+  console.error({ write, read });
+  throw new Error("Aborted run!");
 }
+results.push({ write: write.value, read: read.value });
+process.stdout.write("\n");
 
 console.log(results);

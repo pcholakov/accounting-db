@@ -97,9 +97,12 @@ export class LoadTestDriver {
       await this.doWarmup(measurementStartTime, this.workerCycleTimeMs);
 
       const workStartTime = performance.now();
+      this.scheduleIterationCount = 1;
+      this.workQueue.push(workStartTime); // seed the first request, the rest will be scheduled by the interval task
+
       const workArrivalSchedule = setInterval(() => {
         let nextRequestTime = workStartTime + this.scheduleIterationCount * this.workerCycleTimeMs;
-        while (this.workQueue.length < 100) {
+        while (this.workQueue.length < 100 && nextRequestTime < endTime) {
           this.scheduleIterationCount += 1;
           this.workQueue.push(nextRequestTime);
           nextRequestTime += this.workerCycleTimeMs;
@@ -107,7 +110,7 @@ export class LoadTestDriver {
       }, this.workerCycleTimeMs);
 
       do {
-        while (this.workQueue.length == 0) {
+        while (this.workQueue.length == 0 && performance.now() < endTime) {
           await sleep(0); // yield to the control loop
         }
         const workerLoopStart = performance.now();
@@ -121,8 +124,6 @@ export class LoadTestDriver {
                 this.requestLatencyMicros,
                 Math.round(Math.max(workerLoopStart - arrivalTime, this.timeoutValueMs) * 1000),
               );
-            } else {
-              this.scheduleIterationCount -= 1;
             }
           });
           break;
@@ -221,8 +222,9 @@ export class LoadTestDriver {
       configuration: {
         targetArrivalRate: this.targetRps,
         concurrency: this.concurrency,
-        duration: this.overallDurationMs,
-        warmup: this.warmupDurationMs,
+        overallDurationMillis: this.overallDurationMs,
+        warmupMillis: this.warmupDurationMs,
+        requestTimeoutMillis: this.timeoutValueMs,
       },
       testRunData: this.test.testRunData(),
       targetIterations: this.scheduleIterationCount,
@@ -270,6 +272,6 @@ export class LoadTestDriver {
   }
 }
 
-export async function sleep(ms: number) {
+export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

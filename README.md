@@ -10,3 +10,10 @@ approach in order to achieve extremely low human operational cost.
 Transfers are transactional debits/credits between pairs of accounts. You
 specify a credit and debit account, and an amount, and the system will accept or
 reject the transfer depending on which logic rules are active.
+
+## Deploying a test stack
+
+```shell
+npm run deploy
+eval $(./bin/get-benchmark-function-name.sh)
+```

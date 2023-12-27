@@ -15,7 +15,7 @@ export class AccountingDbStack extends cdk.Stack {
 
     /// On-demand gives us adaptive capacity that scales down to zero when not
     /// in use; you should get a baseline of 10,000 WCU which allows up to ~3333
-    /// tranfsers/second. Sustained usage will cause DynamoDB to raise the limit
+    /// transfers/second. Sustained usage will cause DynamoDB to raise the limit
     /// at increments of 30 minutes.
     const onDemandBilling = {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -59,5 +59,9 @@ export class AccountingDbStack extends cdk.Stack {
       },
     });
     table.grantReadWriteData(benchmarkTransfers);
+
+    new cdk.CfnOutput(this, "BenchmarkFunctionName", {
+      value: benchmarkTransfers.functionName,
+    });
   }
 }

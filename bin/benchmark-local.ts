@@ -8,23 +8,23 @@ import { CreateTransfersLoadTest, ReadAccountBalancesLoadTest } from "../lib/loa
 
 // Load test parameters
 
-const durationPerTestCycleSeconds = 30;
+const testDurationSeconds = 10;
 const numAccounts = 1_000_000;
 const hotAccounts = 1_000;
 
-const readRate = 0;
+const readRate = 0; // Set to 0 to disable
 const readConcurrency = 1;
-const readBatchSize = 10;
+const readBatchSize = 1;
 
-const writeRate = 500;
+const writeRate = 10; // Set to 0 to disable
 const writeConcurrency = 1;
-const writeBatchSize = 10;
+const writeBatchSize = 1;
 const writeAccountSelectionStrategy = AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
 
 const requestTimeoutMs = 100;
 const dynamoDbClientTimeoutMs = 500;
 
-// No more configuration below this line
+// No more test configuration below this line
 
 inspect.defaultOptions.depth = 5;
 
@@ -87,52 +87,55 @@ async function createDatabaseTable(opts: { recreateIfExists: boolean }) {
   console.log("Created empty table.");
 }
 
-await createDatabaseTable({ recreateIfExists: false });
+async function main() {
+  await createDatabaseTable({ recreateIfExists: false });
 
-const results = [];
+  const writeDriver = new LoadTestDriver(
+    new CreateTransfersLoadTest({
+      documentClient,
+      tableName: TABLE_NAME,
+      numAccounts,
+      hotAccounts,
+      batchSize: writeBatchSize,
+      accountSelectionStrategy: writeAccountSelectionStrategy,
+      progressMarker: writeRate,
+    }),
+    {
+      targetRequestRatePerSecond: writeRate,
+      concurrency: writeConcurrency,
+      durationSeconds: testDurationSeconds,
+      timeoutValueMs: requestTimeoutMs,
+      skipWarmup: false,
+    },
+  );
 
-const writeDriver = new LoadTestDriver(
-  new CreateTransfersLoadTest({
-    documentClient,
-    tableName: TABLE_NAME,
-    numAccounts,
-    hotAccounts,
-    batchSize: writeBatchSize,
-    accountSelectionStrategy: writeAccountSelectionStrategy,
-    progressMarker: 1_000,
-  }),
-  {
-    targetRequestRatePerSecond: writeRate,
-    concurrency: writeConcurrency,
-    durationSeconds: durationPerTestCycleSeconds,
-    timeoutValueMs: requestTimeoutMs,
-    skipWarmup: false,
-  },
-);
+  const readDriver = new LoadTestDriver(
+    new ReadAccountBalancesLoadTest({
+      documentClient,
+      tableName: TABLE_NAME,
+      numAccounts,
+      batchSize: readBatchSize,
+      progressMarker: readRate,
+    }),
+    {
+      targetRequestRatePerSecond: readRate,
+      concurrency: readConcurrency,
+      durationSeconds: testDurationSeconds,
+      timeoutValueMs: requestTimeoutMs,
+      skipWarmup: false,
+    },
+  );
 
-const readDriver = new LoadTestDriver(
-  new ReadAccountBalancesLoadTest({
-    documentClient,
-    tableName: TABLE_NAME,
-    numAccounts,
-    batchSize: readBatchSize,
-    progressMarker: 1_000,
-  }),
-  {
-    targetRequestRatePerSecond: readRate,
-    concurrency: readConcurrency,
-    durationSeconds: durationPerTestCycleSeconds,
-    timeoutValueMs: requestTimeoutMs,
-    skipWarmup: false,
-  },
-);
+  const startTime = Date.now();
 
-const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
-if (write.status === "rejected" || read.status === "rejected") {
-  console.error({ write, read });
-  throw new Error("Aborted run!");
+  const [write, read] = await Promise.allSettled([writeDriver.run(), readDriver.run()]);
+  process.stdout.write("\n");
+
+  console.log({
+    startTime: new Date(startTime).toISOString(),
+    write: write.status === "fulfilled" ? write.value : write,
+    read: read.status === "fulfilled" ? read.value : read,
+  });
 }
-results.push({ write: write.value, read: read.value });
-process.stdout.write("\n");
 
-console.log(results);
+main();

@@ -138,15 +138,7 @@ export async function getAccountsBatch(
   };
 }
 
-export async function createTransfer(
-  documentClient: ddc.DynamoDBDocumentClient,
-  tableName: string,
-  transfer: Transfer,
-): Promise<TransferResult> {
-  return (await createTransfersBatch(documentClient, tableName, [transfer])).overallResult;
-}
-
-export async function createTransfersBatch<T>(
+export async function createTransfersBatch(
   documentClient: ddc.DynamoDBDocumentClient,
   tableName: string,
   batch: Transfer[],

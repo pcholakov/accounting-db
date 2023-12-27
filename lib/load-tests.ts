@@ -2,9 +2,10 @@ import * as ddc from "@aws-sdk/lib-dynamodb";
 import { MetadataBearer } from "@aws-sdk/types";
 import { randomInt } from "crypto";
 import pRetry from "p-retry";
-import { AccountSelectionStrategy, buildRandomTransactions } from "./generators.js";
+import { AccountSelectionStrategy, generateTransfers } from "./generators.js";
 import { AbstractBaseTest } from "./load-test-runner.js";
-import { CreateTransfersResult, createTransfersBatch, getAccountsBatch } from "./transactions.js";
+import { createTransfersBatch, CreateTransfersResult, getAccountsBatch } from "./transactions.js";
+import { performance } from "perf_hooks";
 
 export class CreateTransfersLoadTest extends AbstractBaseTest {
   private readonly documentClient: ddc.DynamoDBDocumentClient;
@@ -14,8 +15,9 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
   private readonly hotAccounts?: number;
   private readonly accountSelectionStrategy;
   private readonly retryStrategy: (fn: () => Promise<CreateTransfersResult>) => Promise<CreateTransfersResult>;
-  private readonly _progressMarker: number | undefined;
-  private _globalWriteCounter = 0;
+  private readonly progressMarker: number | undefined;
+  private _globalItemWriteCounter = 0;
+  private _globalTransactionCounter = 0;
   private _sdk_retryDelay = 0;
   private _sdk_retryAttempts = 0;
   private _conflicts_retryDelay = 0;
@@ -38,7 +40,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     this.numAccounts = opts.numAccounts;
     this.hotAccounts = opts.hotAccounts;
     this.accountSelectionStrategy = opts.accountSelectionStrategy;
-    this._progressMarker = opts.progressMarker;
+    this.progressMarker = opts.progressMarker;
 
     // Naively retry the entire batch. A better approach may be to split out just
     // the conflicting items and retry those in a separate transaction. Since we
@@ -65,7 +67,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
           factor: 1.2,
           randomize: true,
           maxTimeout: 60,
-          onFailedAttempt: (error) => {
+          onFailedAttempt: () => {
             this._conflicts_retryAttempts += 1;
             startTime = performance.now();
           },
@@ -75,20 +77,21 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
   }
 
   async performIteration() {
-    const txns = buildRandomTransactions(this.transferBatchSize, this.accountSelectionStrategy, {
+    const transfers = generateTransfers(this.transferBatchSize, this.accountSelectionStrategy, {
       numAccounts: this.numAccounts,
       hotAccounts: this.hotAccounts,
     });
 
     try {
-      const result = await createTransfersBatch(this.documentClient, this.tableName, txns, this.retryStrategy);
-      // Count actual committed items rather than txns.length; transfers that
+      const result = await createTransfersBatch(this.documentClient, this.tableName, transfers, this.retryStrategy);
+      // Count actual committed items rather than transfers.length; transfers that
       // touch the same account within a single transaction will be coalesced by
-      // the transaction logic so it's possible that we wrote fewer than the
+      // the transaction logic, so it's possible that we wrote fewer than the
       // batchSize * 3 worth of DynamoDB items in a single write.
-      this._globalWriteCounter += result.itemsWritten;
-      if (this._progressMarker) {
-        if (this._globalWriteCounter % this._progressMarker == 0) {
+      this._globalItemWriteCounter += result.itemsWritten;
+      this._globalTransactionCounter += transfers.length;
+      if (this.progressMarker) {
+        if (this._globalTransactionCounter % this.progressMarker == 0) {
           process.stdout.write("+");
         }
       }
@@ -101,7 +104,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
       this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
       console.log({
         message: "Transaction batch failed",
-        batch: { _0: txns[0], xs: "..." },
+        batch: { _0: transfers[0], xs: "..." },
         error: err,
       });
       throw err;
@@ -117,7 +120,7 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
       numAccounts: this.numAccounts,
       accountSelectionStrategy: this.accountSelectionStrategy,
       batchSize: this.transferBatchSize,
-      itemsWritten: this._globalWriteCounter,
+      itemsWritten: this._globalItemWriteCounter,
       consumedWriteCapacity: this._consumedWriteCapacity,
       retries: {
         sdk_retryAttempts: this._sdk_retryAttempts,
@@ -135,7 +138,8 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
   private readonly numAccounts: number;
   private readonly batchSize: number;
   private readonly progressMarker: number | undefined;
-  private _globalReadCounter = 0;
+  private _globalItemsRequestedCounter = 0;
+  private _globalItemsReadCounter = 0;
   private _sdk_retryDelay = 0;
   private _sdk_retryAttempts = 0;
   private _consumedReadCapacity = 0;
@@ -166,9 +170,10 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
       // accounts requested (accountIds.size). If accounts weren't pre-created
       // to cover the id space up to numAccounts, it's very likely that a random
       // read will return fewer than batchSize items.
-      this._globalReadCounter += result.accounts?.length ?? 0;
+      this._globalItemsRequestedCounter += accountIds.size;
+      this._globalItemsReadCounter += result.accounts?.length ?? 0;
       if (this.progressMarker) {
-        if (this._globalReadCounter % this.progressMarker == 0) {
+        if (this._globalItemsRequestedCounter % this.progressMarker == 0) {
           process.stdout.write("-");
         }
       }
@@ -191,7 +196,8 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
     return {
       numAccounts: this.numAccounts,
       batchSize: this.batchSize,
-      itemsRead: this._globalReadCounter,
+      itemsRequested: this._globalItemsRequestedCounter,
+      itemsRead: this._globalItemsReadCounter,
       consumedReadCapacity: this._consumedReadCapacity,
       retries: {
         sdk_retryAttempts: this._sdk_retryAttempts,

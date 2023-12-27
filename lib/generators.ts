@@ -9,7 +9,7 @@ export enum AccountSelectionStrategy {
   HOT_SPOT_RANDOM_PEERS = "HOT_SPOT_RANDOM_PEERS",
 }
 
-export function buildRandomTransactions(
+export function generateTransfers(
   count: number,
   accountSelection: AccountSelectionStrategy,
   opts: {

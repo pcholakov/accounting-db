@@ -1,25 +1,36 @@
-import { RecordableHistogram, createHistogram, performance } from "perf_hooks";
+import assert from "assert";
+import { createHistogram, performance, RecordableHistogram } from "perf_hooks";
 
 export interface Test {
   setup(): Promise<void>;
+
   teardown(): Promise<void>;
+
   /// Drive requests to the system under test. If you perform more than one unit
   /// of work, override `requestsPerIteration` to return the number of units of
   /// work performed.
   performIteration(): Promise<void>;
+
   /// Number of work items performed per iteration. Defaults to 1.
   requestsPerIteration(): number;
+
   /// Return additional configuration information to be included in the results.
   testRunData(): any;
 }
 
 export abstract class AbstractBaseTest implements Test {
-  async setup(): Promise<void> {}
-  async teardown(): Promise<void> {}
+  async setup(): Promise<void> {
+  }
+
+  async teardown(): Promise<void> {
+  }
+
   abstract performIteration(): Promise<void>;
+
   requestsPerIteration() {
     return 1;
   }
+
   testRunData(): object {
     return {};
   }
@@ -29,19 +40,21 @@ export class LoadTestDriver {
   private readonly concurrency: number;
   private readonly targetRps: number;
   private readonly workerCycleTimeMs: number;
+  private readonly arrivalIntervalTimeMs: number;
   private readonly test: Test;
   private readonly overallDurationMs: number;
   private readonly warmupDurationMs: number;
   private readonly requestLatencyMicros: RecordableHistogram;
   private readonly serviceTimeMicros: RecordableHistogram;
   private readonly timeoutValueMs: number;
-  private iterationCount: number = 0;
-  private scheduleIterationCount: number = 0;
+  private completedIterationsCount: number = 0;
+  private scheduledIterationsCount: number = 0;
+  // The work queue is a list of timestamps representing the "arrival" time of requests.
   private workQueue: number[] = [];
   private requestCount: number = 0;
   private errorIterations: number = 0;
   private missedIterations: number = 0;
-  private benchmarkDurationMs: number;
+  private readonly benchmarkDurationMs: number;
   private readonly requestsPerIteration: number;
   private workerRunTime: number = 0;
   private workerBackoffTime: number = 0;
@@ -65,6 +78,7 @@ export class LoadTestDriver {
     this.overallDurationMs = opts.durationSeconds * 1_000;
     this.requestsPerIteration = test.requestsPerIteration();
     this.workerCycleTimeMs = (1000 * this.concurrency) / (this.targetRps / this.requestsPerIteration);
+    this.arrivalIntervalTimeMs = 1000 / (this.targetRps / this.requestsPerIteration);
     this.warmupDurationMs = opts.skipWarmup ?? false ? 0 : Math.min(this.overallDurationMs / 10, 10_000); // 10% of duration or 10s, whichever is smaller
     this.timeoutValueMs = opts.timeoutValueMs ?? this.workerCycleTimeMs; // default to the worker cycle time; it's the fastest we could reasonably react to a missed request
     this.benchmarkDurationMs = this.overallDurationMs - this.warmupDurationMs;
@@ -84,73 +98,63 @@ export class LoadTestDriver {
     const measurementStartTime = startTime + this.warmupDurationMs;
     const endTime = startTime + this.overallDurationMs;
 
-    const workers: Array<Promise<void>> = [];
+    const tasks: Array<Promise<void>> = [];
 
-    const concurrentWorkerLoop = async (id: string) => {
-      // Jitter startup and perform the warmup iterations without measuring
-      await sleep(
-        Math.round(
-          Math.random() *
-            (this.warmupDurationMs > 2 * this.workerCycleTimeMs ? this.warmupDurationMs / 2 : this.workerCycleTimeMs),
-        ),
-      );
-      await this.doWarmup(measurementStartTime, this.workerCycleTimeMs);
+    const requestSchedulerLoop = async () => {
+      let nextRequestTime = startTime;
 
-      const workStartTime = performance.now();
-      this.scheduleIterationCount = 1;
-      this.workQueue.push(workStartTime); // seed the first request, the rest will be scheduled by the interval task
-
-      const workArrivalSchedule = setInterval(() => {
-        let nextRequestTime = workStartTime + this.scheduleIterationCount * this.workerCycleTimeMs;
-        while (this.workQueue.length < 100 && nextRequestTime < endTime) {
-          this.scheduleIterationCount += 1;
-          this.workQueue.push(nextRequestTime);
-          nextRequestTime += this.workerCycleTimeMs;
-        }
-      }, this.workerCycleTimeMs);
-
-      do {
-        while (this.workQueue.length == 0 && performance.now() < endTime) {
-          await sleep(0); // yield to the control loop
-        }
-        const workerLoopStart = performance.now();
-
-        // If we're finished, drain the remaining requests from the queue and record their latencies (if applicable)
-        if (workerLoopStart > endTime) {
-          this.workQueue.forEach((arrivalTime) => {
-            if (arrivalTime < endTime - this.workerCycleTimeMs) {
-              this.missedIterations += 1;
-              this.recordDuration(
-                this.requestLatencyMicros,
-                Math.round(Math.max(workerLoopStart - arrivalTime, this.timeoutValueMs) * 1000),
-              );
-            }
-          });
-          break;
-        }
-
-        let arrivalTime = this.workQueue.shift();
-        // skip over any "timed out in queue" requests
-        while (arrivalTime !== undefined && workerLoopStart - arrivalTime > this.timeoutValueMs) {
+      while (nextRequestTime < endTime) {
+        const cutoffTime = performance.now() - this.timeoutValueMs;
+        while (this.workQueue.length > 0 && this.workQueue[0] < cutoffTime) {
+          assert(this.workQueue.shift() !== undefined);
           this.missedIterations += 1;
-          this.recordDuration(
-            this.requestLatencyMicros,
-            Math.round(Math.max(workerLoopStart - arrivalTime, this.timeoutValueMs) * 1000),
-          );
-          arrivalTime = this.workQueue.shift();
+          this.recordDuration(this.requestLatencyMicros, this.timeoutValueMs * 1000);
         }
 
-        if (arrivalTime === undefined) continue; // Only timed out requests in the queue, no real work left to do
-        const iterationStart = arrivalTime; // Treat the intended request start time as the start of the measurement iteration
+        while (this.workQueue.length < this.concurrency * 2 && nextRequestTime < endTime) {
+          this.workQueue.push(nextRequestTime);
+          this.scheduledIterationsCount += 1;
+          nextRequestTime += this.arrivalIntervalTimeMs;
+        }
 
+        await sleep(this.arrivalIntervalTimeMs / 2);
+      }
+    };
+
+    const concurrentWorkerLoop = async () => {
+      do {
+        const workerLoopStart = performance.now();
+        if (workerLoopStart > endTime) break; // Do not start any new work after the scheduled run end time
+
+        // Skip over any scheduled iterations that have already timed out in-queue
+        const cutoffTime = workerLoopStart - this.timeoutValueMs;
+        let arrivalTime = this.workQueue.shift();
+        for (; arrivalTime !== undefined && arrivalTime < cutoffTime; arrivalTime = this.workQueue.shift()) {
+          // Only record timeouts post-warmup
+          if (arrivalTime > measurementStartTime) {
+            this.missedIterations += 1;
+            this.recordDuration(this.requestLatencyMicros, Math.round(this.timeoutValueMs * 1000));
+            arrivalTime = this.workQueue.shift();
+          }
+        }
+
+        // No more work for this worker to do
+        if (arrivalTime === undefined) {
+          await sleep(0); // Yield to other tasks
+          continue;
+        }
+
+        // Treat the intended request start time as the start of the measurement iteration
+        let iterationStart = arrivalTime;
         const backoffTimeMillis = arrivalTime - workerLoopStart;
+
         // Are we ahead of schedule?
         if (backoffTimeMillis > 0) {
           this.workerBackoffTime += backoffTimeMillis;
           if (backoffTimeMillis >= 1.0) {
             await sleep(Math.floor(backoffTimeMillis));
           }
-          while (performance.now() < arrivalTime) {
+          while ((iterationStart = performance.now()) < arrivalTime) {
             await sleep(0);
           }
         } else {
@@ -171,21 +175,22 @@ export class LoadTestDriver {
         const iterationCompleted = performance.now();
         const iterationDurationMillis = iterationCompleted - iterationStart;
         const serviceTimeMillis = iterationCompleted - requestStart;
-        this.recordDuration(this.requestLatencyMicros, Math.round(iterationDurationMillis * 1000));
-        this.recordDuration(this.serviceTimeMicros, Math.round(serviceTimeMillis * 1000));
-        this.iterationCount += 1;
-        this.requestCount += this.requestsPerIteration;
-        this.workerRunTime += serviceTimeMillis;
+        if (arrivalTime >= measurementStartTime) {
+          this.recordDuration(this.requestLatencyMicros, Math.round(iterationDurationMillis * 1000));
+          this.recordDuration(this.serviceTimeMicros, Math.round(serviceTimeMillis * 1000));
+          this.completedIterationsCount += 1;
+          this.requestCount += this.requestsPerIteration;
+          this.workerRunTime += serviceTimeMillis;
+        }
       } while (true);
-
-      clearInterval(workArrivalSchedule);
     };
 
+    tasks.push(requestSchedulerLoop());
     for (let i = 0; i < this.concurrency; i++) {
-      workers.push(concurrentWorkerLoop(`w${i}`));
+      tasks.push(concurrentWorkerLoop());
     }
 
-    await Promise.all(workers);
+    await Promise.all(tasks);
     return this.stop();
   }
 
@@ -196,22 +201,6 @@ export class LoadTestDriver {
       // Record (highly unlikely) sub-microsecond durations as 1us – this
       // is fine since we're reporting the final results in milliseconds.
       histogram.record(1);
-    }
-  }
-
-  private async doWarmup(warmupEndTime: number, workerIterationLengthMs: number) {
-    while (performance.now() < warmupEndTime) {
-      const iterationStart = performance.now();
-      try {
-        await this.test.performIteration();
-      } catch (err) {
-        // ignore errors during warmup
-      }
-      const iterationEnd = performance.now();
-      const iterationDuration = iterationEnd - iterationStart;
-      if (iterationDuration < workerIterationLengthMs) {
-        await sleep(workerIterationLengthMs - iterationDuration);
-      }
     }
   }
 
@@ -227,16 +216,16 @@ export class LoadTestDriver {
         requestTimeoutMillis: this.timeoutValueMs,
       },
       testRunData: this.test.testRunData(),
-      targetIterations: this.scheduleIterationCount,
-      completedIterations: this.iterationCount,
+      completedIterations: this.completedIterationsCount,
       missedIterations: this.missedIterations,
       errorIterations: this.errorIterations,
       failedIterationsRatio:
-        (this.errorIterations + this.missedIterations) / (this.iterationCount + this.missedIterations),
+        (this.errorIterations + this.missedIterations) / (this.completedIterationsCount + this.missedIterations),
       workerCycleTimeMillis: this.workerCycleTimeMs,
       totalRequestsCompleted: this.requestCount,
       throughputOverall: (this.requestCount * 1_000) / this.benchmarkDurationMs,
-      iterationsPerSecondPerWorker: (this.iterationCount * 1_000) / this.concurrency / this.benchmarkDurationMs,
+      iterationsPerSecondPerWorker:
+        (this.completedIterationsCount * 1_000) / this.concurrency / this.benchmarkDurationMs,
       targetArrivalRateRatio: (this.requestCount * 1_000) / this.benchmarkDurationMs / this.targetRps,
       requestLatencyStatsMillis: {
         avg: this.requestLatencyMicros.mean / 1_000,
@@ -272,6 +261,6 @@ export class LoadTestDriver {
   }
 }
 
-export function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -12,12 +12,12 @@ inspect.defaultOptions.depth = 5;
 const TABLE_NAME = process.env["TABLE_NAME"] ?? "transactions";
 const NUMBER_OF_ACCOUNTS = Number.parseInt(process.env["NUMBER_OF_ACCOUNTS"] ?? `${1_000_000}`);
 const BATCH_SIZE = Number.parseInt(process.env["BATCH_SIZE"] ?? "33");
+const TIMEOUT_MS = 500;
 
-const requestTimeoutMs = 100;
 const dynamoDbClient = new dynamodb.DynamoDBClient({
   requestHandler: new NodeHttpHandler({
-    connectionTimeout: requestTimeoutMs,
-    requestTimeout: requestTimeoutMs,
+    connectionTimeout: TIMEOUT_MS,
+    requestTimeout: TIMEOUT_MS,
   }),
   maxAttempts: 2,
 });
@@ -25,11 +25,12 @@ const documentClient = ddc.DynamoDBDocumentClient.from(dynamoDbClient, {
   marshallOptions: { removeUndefinedValues: true },
 });
 
+// TODO: Validate requests.
 export const handler: Handler = async (event, context) => {
-  const writeRate = event.writeRate ?? 1000;
+  const writeRate = event.writeRate ?? 100;
   const writeConcurrency = event.writeConcurrency ?? 4;
   const writeBatchSize = event.writeBatchSize ?? BATCH_SIZE;
-  const readRate = event.readRate ?? 2000;
+  const readRate = event.readRate ?? 100;
   const readConcurrency = event.readConcurrency ?? 4;
   const readBatchSize = event.readBatchSize ?? BATCH_SIZE;
   const durationSeconds = event.durationSeconds ?? 60;
@@ -59,7 +60,7 @@ export const handler: Handler = async (event, context) => {
       concurrency: writeConcurrency,
       targetRequestRatePerSecond: writeRate,
       durationSeconds,
-      timeoutValueMs: requestTimeoutMs,
+      timeoutValueMs: TIMEOUT_MS,
     },
   );
 
@@ -74,7 +75,7 @@ export const handler: Handler = async (event, context) => {
       targetRequestRatePerSecond: readRate,
       concurrency: readConcurrency,
       durationSeconds,
-      timeoutValueMs: requestTimeoutMs,
+      timeoutValueMs: TIMEOUT_MS,
     },
   );
 

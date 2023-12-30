@@ -1,5 +1,5 @@
 {
-  "app": "npx node --loader ts-node/esm bin/accounting-db.ts",
+  "app": "tsx bin/accounting-db.ts",
   "watch": {
     "include": [
       "**"

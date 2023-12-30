@@ -51,7 +51,7 @@ export class AccountingDbStack extends cdk.Stack {
     const benchmarkTransfers = new lambda_node.NodejsFunction(this, "BenchmarkTransfers", {
       memorySize: 4096,
       timeout: cdk.Duration.seconds(600),
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_LATEST,
       handler: "handler",
       entry: path.join(__dirname, "../lambda/benchmark.ts"),
       environment: {

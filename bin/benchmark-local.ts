@@ -9,16 +9,16 @@ import { CreateTransfersLoadTest, ReadAccountBalancesLoadTest } from "../lib/loa
 // Load test parameters
 
 const testDurationSeconds = 10;
-const numAccounts = 1_000_000;
+const numAccounts = 1_000;
 const hotAccounts = 1_000;
 
-const readRate = 0; // Set to 0 to disable
-const readConcurrency = 1;
-const readBatchSize = 1;
+const readRate = 500; // Set to 0 to disable
+const readConcurrency = 5;
+const readBatchSize = 5;
 
-const writeRate = 10; // Set to 0 to disable
-const writeConcurrency = 1;
-const writeBatchSize = 1;
+const writeRate = 500; // Set to 0 to disable
+const writeConcurrency = 5;
+const writeBatchSize = 5;
 const writeAccountSelectionStrategy = AccountSelectionStrategy.RANDOM_PEER_TO_PEER;
 
 const requestTimeoutMs = 100;

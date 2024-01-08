@@ -1,7 +1,17 @@
 import assert from "assert";
 import { createHistogram, performance, RecordableHistogram } from "perf_hooks";
+import { Configuration, createMetricsLogger, MetricsLogger, StorageResolution, Unit } from "aws-embedded-metrics";
+
+export interface TestMetadata {
+  /**
+   * The test name will be used as a metric dimension for reporting.
+   */
+  name: string;
+}
 
 export interface Test {
+  metadata(): TestMetadata;
+
   setup(): Promise<void>;
 
   teardown(): Promise<void>;
@@ -19,6 +29,12 @@ export interface Test {
 }
 
 export abstract class AbstractBaseTest implements Test {
+  metadata() {
+    return {
+      name: this.constructor.name,
+    };
+  }
+
   async setup(): Promise<void> {
   }
 
@@ -36,16 +52,25 @@ export abstract class AbstractBaseTest implements Test {
   }
 }
 
+export const METRIC_NAMESPACE = "AccountingDB";
+Configuration.namespace = METRIC_NAMESPACE;
+
+export type MetricNames = "Success" // overall success (1) / failure (0) of a single batch
+  | "Latency" // elapsed time from batch arrival time to commit
+  | "ServiceTime" // elapsed time from batch processing start time to commit
+  | "BatchSize"; // number of successfully processed items in a single batch; not emitted for failed transactions
+
+const METRICS_RESOLUTION = StorageResolution.High;
+
 export class LoadTestDriver {
   private readonly concurrency: number;
   private readonly targetRps: number;
   private readonly workerCycleTimeMs: number;
   private readonly arrivalIntervalTimeMs: number;
   private readonly test: Test;
+  private readonly name: string;
   private readonly overallDurationMs: number;
   private readonly warmupDurationMs: number;
-  private readonly requestLatencyMicros: RecordableHistogram;
-  private readonly serviceTimeMicros: RecordableHistogram;
   private readonly timeoutValueMs: number;
   private completedIterationsCount: number = 0;
   private scheduledIterationsCount: number = 0;
@@ -59,6 +84,10 @@ export class LoadTestDriver {
   private workerRunTime: number = 0;
   private workerBackoffTime: number = 0;
   private workerBehindScheduleTime: number = 0;
+  // We track metrics internally, and optionally post them to CloudWatch. The latter is great for distributed use.
+  private readonly requestLatencyMicros: RecordableHistogram;
+  private readonly serviceTimeMicros: RecordableHistogram;
+  private readonly metrics: MetricsLogger;
 
   constructor(
     test: Test,
@@ -85,10 +114,12 @@ export class LoadTestDriver {
     this.test = test;
     this.requestLatencyMicros = createHistogram();
     this.serviceTimeMicros = createHistogram();
+    this.metrics = createMetricsLogger();
+    this.name = test.metadata().name;
   }
 
   async run(): Promise<any> {
-    if (this.targetRps == 0) {
+    if (this.targetRps <= 0) {
       return;
     }
 
@@ -105,11 +136,16 @@ export class LoadTestDriver {
 
       while (nextRequestTime < endTime) {
         const cutoffTime = performance.now() - this.timeoutValueMs;
+        // Prune expired-in-queue requests from the work queue and record timeouts:
         while (this.workQueue.length > 0 && this.workQueue[0] < cutoffTime) {
           assert(this.workQueue.shift() !== undefined);
+          this.metrics.putDimensions({ Name: this.name });
+          this.metrics.putMetric($m("Latency"), this.timeoutValueMs, Unit.Milliseconds, METRICS_RESOLUTION);
+          this.metrics.putMetric($m("Success"), 0, Unit.None, METRICS_RESOLUTION);
           this.missedIterations += 1;
           this.recordDuration(this.requestLatencyMicros, this.timeoutValueMs * 1000);
         }
+        await this.metrics.flush();
 
         while (this.workQueue.length < this.concurrency * 2 && nextRequestTime < endTime) {
           this.workQueue.push(nextRequestTime);
@@ -129,14 +165,18 @@ export class LoadTestDriver {
         // Skip over any scheduled iterations that have already timed out in-queue
         const cutoffTime = workerLoopStart - this.timeoutValueMs;
         let arrivalTime = this.workQueue.shift();
+        this.metrics.putDimensions({ Name: this.name });
         for (; arrivalTime !== undefined && arrivalTime < cutoffTime; arrivalTime = this.workQueue.shift()) {
           // Only record timeouts post-warmup
           if (arrivalTime > measurementStartTime) {
             this.missedIterations += 1;
             this.recordDuration(this.requestLatencyMicros, Math.round(this.timeoutValueMs * 1000));
+            this.metrics.putMetric($m("Latency"), this.timeoutValueMs, Unit.Milliseconds, METRICS_RESOLUTION);
+            this.metrics.putMetric($m("Success"), 0, Unit.None, METRICS_RESOLUTION);
             arrivalTime = this.workQueue.shift();
           }
         }
+        await this.metrics.flush();
 
         // No more work for this worker to do
         if (arrivalTime === undefined) {
@@ -181,6 +221,13 @@ export class LoadTestDriver {
           this.completedIterationsCount += 1;
           this.requestCount += this.requestsPerIteration;
           this.workerRunTime += serviceTimeMillis;
+
+          this.metrics.putDimensions({ Name: this.name });
+          this.metrics.putMetric($m("Latency"), iterationDurationMillis, Unit.Milliseconds, METRICS_RESOLUTION);
+          this.metrics.putMetric($m("ServiceTime"), serviceTimeMillis, Unit.Milliseconds, METRICS_RESOLUTION);
+          this.metrics.putMetric($m("BatchSize"), this.requestsPerIteration, Unit.Count, METRICS_RESOLUTION);
+          this.metrics.putMetric($m("Success"), 1, Unit.None, METRICS_RESOLUTION);
+          await this.metrics.flush();
         }
       } while (true);
     };
@@ -263,4 +310,8 @@ export class LoadTestDriver {
 
 export async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function $m(metric: MetricNames) {
+  return metric;
 }

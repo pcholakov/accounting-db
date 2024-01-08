@@ -1,5 +1,5 @@
 {
-  "durationSeconds": 5,
+  "durationSeconds": 60,
   "numAccounts": 1000000,
 
   "writeRate": 10,

@@ -76,6 +76,12 @@ export class CreateTransfersLoadTest extends AbstractBaseTest {
     };
   }
 
+  metadata(): { name: string } {
+    return {
+      name: "CreateTransfers",
+    }
+  }
+
   async performIteration() {
     const transfers = generateTransfers(this.transferBatchSize, this.accountSelectionStrategy, {
       numAccounts: this.numAccounts,
@@ -185,6 +191,12 @@ export class ReadAccountBalancesLoadTest extends AbstractBaseTest {
       this._sdk_retryAttempts += ((err as MetadataBearer)?.$metadata?.attempts ?? 1) - 1;
       this._sdk_retryDelay += (err as MetadataBearer)?.$metadata?.totalRetryDelay ?? 0;
       throw err;
+    }
+  }
+
+  metadata(): { name: string } {
+    return {
+      name: "ReadAccountBalances",
     }
   }
 
